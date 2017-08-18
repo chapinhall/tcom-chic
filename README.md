@@ -12,7 +12,7 @@ The most effective way to benefit from--and contribute to--this resource is to b
 
 Some free tutorials that we recommend are:
 
-* [tryGit}(https://try.github.io/levels/1/challenges/1), created by CodeSchool, which is a light and interactive way to try out `git` that does not require any downloads or installation
+* [tryGit](https://try.github.io/levels/1/challenges/1), created by CodeSchool, which is a light and interactive way to try out `git` that does not require any downloads or installation
 * [Hello World](https://guides.github.com/activities/hello-world/), created by GitHub, which provides clear, essential basics on using `GitHub`
 
 
