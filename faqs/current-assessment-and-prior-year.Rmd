@@ -1,0 +1,49 @@
+## How do I select client's most recent assessment, and the one closest to a year prior?
+
+Firt, we will create a sample data set.
+
+```{r selecting assessments a year before - create data}
+library(dplyr)
+library(tidyr)
+
+# Loading your data into a data frame in R
+df <- data.frame(ANSA = 1:6,
+                 ID = c(1, 1, 2, 3, 3, 3),
+                 ANSA_Date = as.Date(c("2017-1-1", "2012-5-20", "2017-1-1", "2017-1-1", "2016-1-25", "2015-9-30")))
+
+
+```
+
+Next, group the rows by client ID, and creating a series of columns which identify which is most recent, how long ago the others are, and which is closest to 365 days before the most recent.
+
+```{r selecting assessments a year before - create indicators}
+
+df_calcs <-
+  df %>%
+  group_by(ID) %>%
+  mutate(mostRecentDate = max(ANSA_Date),
+         isMostRecent = ANSA_Date == mostRecentDate,
+         timeToRecent = mostRecentDate - ANSA_Date,
+         timeToYearPrior = abs(timeToRecent - 365))
+df_calcs
+```
+
+Subset the rows to keep only the most recent, or the assessment whose timing is the minimum time to the prior year.
+
+```{r selecting assessments a year before - subset rows}
+df_sub <- 
+  df_calcs %>%
+  filter(isMostRecent | timeToYearPrior == min(timeToYearPrior))
+df_sub
+```
+
+Finally, selecting only the fields that we want.
+
+```{r selecting assessments a year before - preserve only desired fields}
+
+df_final <-
+  df_sub %>%
+  select(ANSA, ID, ANSA_Date)
+df_final
+```
+
