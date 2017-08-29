@@ -1,0 +1,253 @@
+---
+title: "DIY Interactive CANS Reports Using Excel's Pivot Charts"
+author: "Nick Mader, Chapin Hall at the University of Chicago (nmader@chapinhall.org)"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, error = FALSE)
+```
+
+# Introduction
+
+Excel is a common denominator tool, and is continually improving at making easy, interactive visuals. This short guide will show you how to create CANS data reports using Pivot Charts in Excel. Specifically, you will see how to create initial vs reassessment score comparisons by CANS, with the ability to drill down to any administrative level or client subpopulation of interest.
+
+This article will demonstrate all of the steps needed to create that report using a fairly typical CANS data setup. The (fake) data that we will be using can be downloaded from [this Google Drive folder](https://drive.google.com/drive/folders/0B6Z01JezxTRUODZXOHZVeVJMSjA?usp=sharing). The Excel workbook that you find there will have both the original data that we start with, along with the final product.
+
+Please let us know if you can questions or feedback for this process. TCOM's CODA group can be reached at [coda@chapinhall.org](mailto:coda@chapinhall.org).
+
+# Preparing your Data
+
+In the mock-up data mentioned above, each row represents a single CANS assessment, and all of the scores (on a 0-3 scale) for each item. This section will demonstrate how to reshape the data and create additional columns that are necessary for taking full advantage of the Pivot Chart tool.
+
+If your data is in a different format, these instructions will help offer ideas for the steps you need to take. If you get stuck, e-mail us and we will update this article to provide additional guidance!
+
+## Reshaping your Data
+
+Pivot Charts and Pivot Tables are strongest when able to work with data on "long" format. That is, when each number that we are looking to analze has its own row, and other columns have contextual information about that number. In our case of working with CANS data, this means that each individual CANS item score will have its own row, and the other columns will indicate information about which client that assessment is for, when it was taken, which agency served that client, and so on.
+
+<!-- ### Method 1 (recommended) - Reshape Data Using Tableau's Data Tool Add-In for Excel -->
+
+[Tableau](https://www.tableau.com/) is an increasingly popular software for creating data visualizations and interactive dashboard. While using Tableau itself requires the purchase of license, the makes of Tableau have very helpfully created a free "Data Tool" for Excel that can be helpful for working with data to get it into useful forms for Tableau. This same add-in will be useful to use for reshaping data in Excel for use in Pivot Charts.
+
+Download the Tableau data tool at [this link](https://community.tableau.com/servlet/JiveServlet/download/10394-2-178585/tableau_data_tool.zip) and follow [these simple instructions](https://community.tableau.com/docs/DOC-10394) for how to turn on this add-in for Excel. Note that you might need to restart Excel for this add-in to show up.
+
+As a reminder, our goal is to reformat our data so that each row represents a single CANS score, rather than an entire assessment. Once the Tableau add-in is installed, this can be done by:
+
+1. putting your cursor on the top-and-left-most CANS assessment in your table, and
+2. clicking on the `Tableau` menu at the top, clicking on the `Reshape Data` button, and clicking `OK`.
+
+Note that all columns to the right of the cursor will be reshaped "down". If there are any columns to the right of your cursor in your data set that do not reprsent CANS score fields, then **before** you do this reshaping process, you should cut and paste them so that they are to the left of all of the CANS item scores.
+
+&nbsp;
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/tableau-reshape.gif)
+
+&nbsp;
+
+Note that the reshaping process make take a few minutes, but a progress bar will pop up to help you judge its speed.
+
+The output will be a new tab in your same Excel workbook. The columns of the output will be relatively narrow, but one good trick in Excel to adjust this is to select all of the columns by clicking and dragging the tops of the columns (where the letters are), and then **double**-clicking on any of the borders that separate the column letters.
+
+&nbsp;
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/columns-resize-and-relabel.gif)
+
+&nbsp;
+
+Notice that the last two columns on the right now have the names and scores for each of the CANS items respective. Retitle them to reflect that.
+
+<!-- Our table is now ready for the next data preparation steps. If you have successfully made it this far, you can skip the "Method 2" below for reshaping the data. -->
+
+
+<!-- ### Method 2 - Reshape Data Using Excel's PivotTable Wizard -->
+
+<!-- This second method is much more involved than the one above, but has the advantage of not requiring any downloads or installations beyond just having Excel itself. -->
+
+<!-- <!-- THESE INSTRUCTIONS WERE AT THE BEGINNING OF NATE'S DOCUMENT. I'm not quite sure what to make of them. --> -->
+<!-- <!-- Creating a multiple consolidation range pivot table in Excel: --> -->
+<!-- <!-- 0. CREATE TOTAL COLUMN! This must be the last item in the dataset!! --> -->
+<!-- <!-- Multiple PivotTables Reports from the same Pivot Table: --> -->
+<!-- <!--  http://www.youtube.com/watch?v=djuLhm0roEA --> -->
+<!-- <!-- Each Agency or Clinician becomes a Report Filter! --> -->
+<!-- <!-- 	Then go to Options ??? Page to become multiple tabs  --> -->
+
+<!-- This method starts with creating a single column which uniquely identifies each row. To do this, we'll create a new column which combines all of the information from all the other columns with identifying information. The "&" character works like a plus sign, glueing information from two cells together, and we will use that to combine information all of our non-CANS score columns, and separate each value with an exclamation point, as an unambiguous separator (which comes in handy later). In our example, the final formula for row 2, using identifiers in columns A through I is: =A2 & "!" & B2 & "!" & C2 & "!" & D2 & "!" & E2 & "!" & F2 & "!" & G2 & "!" & H2 & "!" & I2 -->
+
+<!-- <!-- Does this have to be all the way at the right? Or can it be in the middle of the table --> -->
+
+<!-- <!-- Gif of creating column, entering formula --> -->
+
+<!-- Next, we will use an old Excel pivot table wizard to shart the reshaping. -->
+
+<!-- 1. Select the data, then press "Alt" + "D"" + "P". (Note, you can push each one of these, let that key go, and then press the next one.) Select "Multiple Consolidation Ranges" on the box and click "Next". Then select "I will create the page fields" and click "Next". -->
+
+<!-- <!-- Are there not less janky ways to access this function in more recent versions of Excel? --> -->
+
+<!-- 2. In the next view, click in the "Range" field and then select the full extent of your data. An easy way to do this is to click on cell A1, hold both the Ctrl and Shift keys, hit the down key, and then hit the right arrow key. (Holding the Ctrl key makes the cursor jump to the farthest edge of the table, and holding the Shift key tells Excel to use that movement to expand the selection.) -->
+<!-- <!-- 2. It will ask how many page fields you want. Click "I will create the page fields" then "Next" to put it on a new sheet. NSM: I'm not seeing the "I will create page fileds option" --> -->
+<!-- 3. For the question "How many page fields do you want?", select "0" and click Next. Finally, when asked "Where do you want to put the PivotTable report?" slect "New worksheet" and click "Finish". -->
+
+<!-- Finally, we will unpack the results and obtain the intended shape of the data. -->
+
+<!-- 1. Deselect "Row" and "Column" in the right-hand PivotTable Fields window, leaving only "Value" selected. It gives you a summary "Count of Value". Double-Click on that number field. Three columns will appear: "Row", "Column" and "Value." -->
+<!-- 2. Select the concatenated ID column. Then right click at the column boundary and drag it over to the first empty column. Select "Shift right and move," dropping it into its own column by the empty columns. -->
+<!-- 3. Select the concatenated column, go to Data>>Text to Columns>>Delimited>>Next -->
+<!-- 4. Then select "Other" and type in the character used to divide the values. In this case it is the exclamation point (!). -->
+<!-- 5. Click Finish. Then appropriately re-label the columns.    -->
+
+<!-- <!-- These last several steps aren't working properly. Need to go back to the source. --> -->
+
+## Add Calculations for New Information
+
+Now that our data is in the shape that is best suited for Pivot Chart functions, we want to create a few more columns with information that will help make meaning of our data.
+
+### Calculate Indicator of Actionable Needs
+
+While CANS item scores range from 0 to 3, an item is considered actionable if its score is 2 or 3. In a new column, we will use the below formula to check whether the score is greater than or equal to 2, output a value of `1` if so, and ouptut `0` if not.
+
+    =IF(**CELL WITH CANS SCORE VALUE** >= 2, 1, 0)
+
+After entering this formula in row 2, it can be extended to all of the rows below by  selecting the cell with the formula, and double-clicking on the little box at the bottom right corner.
+
+&nbsp;
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/create-actionable-item-field.gif)
+&nbsp;
+
+
+### Identifying Timing of Assessments
+
+This step will classify each assessment in to a larger assessment time period.
+
+First, we identify the time between the completion of the assessment and the start period. This can simply be done by subtracting the completion date and the episode start date, which will result in the number of days inbetween.
+
+Second, we will use this number of days since start to identify whether an assessment should be classified as "Initial" (if it is within 45 days of first assessment), "3 Month" (if it is within 90 days of the Initial period, i.e. between 46 and 135 days), "6 Month" (if it is within 90 days of the "3 Month"), etc.
+
+A formula that will do this is below.
+
+    =INDEX({"42 Months","39 Months","36 Months","33 Months","30 Months","27 Months","24 Months","21 Months","18 Months","15 Months","12 Months","9 Months","6 Months","3 Months","Initial"},
+    MATCH(**CELL WITH DAYS SINCE START**, {1305,1215,1125,1035,945,855,765,675,585,495,405,315,225,135,45}, -1))
+
+Copy and paste this into a new column in Excel, and replace "**CELL WITH DAYS SINCE START**" with the appropriate reference. Then copy that formula all the way to the end of the table as described above.
+
+&nbsp;
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/days-since-start-and-pd-classification.gif)
+&nbsp;
+
+**NOTE TO NATE: The original instructions were to create initial vs most recent assessments. That seemed a bit like mixing apples and oranges. I've set this up so that it's initial vs. specified time period. Thoughts?**
+
+<!-- ### Identifying first and most recent assessments -->
+
+<!-- * Sort by start date and assessment date. -->
+<!-- * For most recent initial--use formula to check for when initial turns over and create flag. -->
+<!-- * For most recent--use formula to check for when ID and start date turnover and create flag. -->
+
+# Creating Interactive Reports
+
+## Set Up Pivot Chart
+
+We are now ready to create our interactive reports using Excel's Pivot Charts tool.
+
+First, to create a new Pivot Chart go to `Insert` in Excel's menu and to `Pivot Chart`. In the pop-up, make sure that the range for the full table is in the first field labeled `Select a table or range`, and that `New Worksheet` is selected under `Choose where you want the PivotChart to be placed`. Then click `OK`.
+
+&nbsp;
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/create-pivot-chart.gif)
+
+&nbsp;
+
+Next, we define which fields should be included in the Pivot Chart, and how they are to be used:
+
+1. In the `Pivot Chart Fields` window that has opened up on the right, check boxes for all of the fields that represent meaningful classifications for our clients (e.g. Agency, Region, Program, Sex, Age, Ethnicity, etc), the CANS item field, the new actionable item indicator, and the new assessment period field.
+2. Drag all of the fields to the appropriate area at the bottom right:
+  - Drag classification fields to to **FILTERS** area;
+  - Drag "Item" to the **AXIS (CATEGORIES)** area;
+  - Drag "Assessment Period" to the **LEGEND (SERIES)** area; and 
+  - Drag "Actionable Item" to the **VALUES** area.
+3. Finally, click on `Sum of Actionable Item` under the **VALUES** area and click on `Value Field Settings...`. In the list of calculation types that pops up, select `Average` and click OK.
+
+&nbsp;
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/drag-fields-within-pivot-chart.gif)
+
+&nbsp;
+
+Now that our content is set, we will improve the look and layout of our chart. With the chart selected, go to the `DESIGN` item in the top menu and click on `Change Chart Type`. Then select a 2-D bar chart and click `OK`, which will rotate the graph by 90 degrees.
+
+Next, notice that the values in the legend are all out of order. (Specifically, they are sorted to be alphabetically descending.) The order can be changed by clicking on the gray `Assessment Period` bar and clicking on `More sort options...`. From there, click `Manual (you can drag items to rearrange them).` To do this, go to the underlying pivot table, click on the column titles, and hover over the edge of the selected cell, which changes the cursor from a plus to a multi-way direction arrow. From there, the columns can be dragged into the proper order.
+
+&nbsp;
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/reformat-and-sort-columns-in-pivot-charts.gif)
+
+&nbsp;
+
+Next, we will improve the aesthetics for our plot, and move it into its own tab. Because our calculations represent percentages of scores that are actionable within each CANS item, we will change the horizontal axis to percentage format. To do this:
+
+* click on the axis, right-click and select `Format Axis...`
+* in the window that opens to the right, under `AXIS OPTIONS` at the top, make sure that the icon of the bars is select; and
+* under the `AXIS OPTIONS` dropdown, set the `Maximum` bound to 1.0, and under the `NUMBER` dropdown select "Percentage" under `Category` and select 0 for `Decimal places`.
+
+You can make these changes by either clicking out of the `Decimal` field, or by closing the `AXIS OPTIONS` window.
+
+To add a title, go to `DESIGN` in the Excel menu and select `Add Chart Element`, `Chart Title` and `Above Chart`. With the new title selected, you can start typing your name for the title, which be visible in the formula bar. Hit enter and the title will update.
+
+Finally, right-click on the chart and select `Move Chart`. Then select `New sheet` and create a title. This will move our chart into its own tab, where it will be larger and more cleanly presented.
+
+
+## Working with Report Elements
+
+At this point, our content is fully set and using the report is a matter of taking advantage of the features that we have set up.
+
+To select a subset of Assessment Periods, click on the gray `Assessment Period` bar in the legend, and select only the values we want.
+
+&nbsp;
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/subset-pivot-chart-series.gif)
+
+&nbsp;
+
+To sort the CANS item categories, we can perform an alphabetical sort by clicking on the gray `Item` bar and selecting `A to Z` or `Z to A`. The sort begins from the bottom, so the `Z to A` sort puts "A" at the top.
+
+Alternatively, we can sort the categories based on the values of either series by going to the sheet with the Pivot Table, clicking on a value in the column we want, and clicking on either the `A to Z` or `Z to A` icons under the `DATA` menu.
+
+&nbsp;
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/sort-categories-in-pivot-chart.gif)
+
+&nbsp;
+
+We can also drill down to report on specific administrative units or client populations by clicking the gray bars at the top, representing our categorical filters. As we do this, notice that we have the option to `Select Multiple Options` at the bottom of each filtering pop-up. Also notice that as we make our selections, our data remains sorted according to the same rule we had set above.
+
+&nbsp;
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/use-filter-in-pivot-chart.gif)
+
+&nbsp;
+
+In order to create multiple distinctive report views, any sheet can be duplicated by going to the `HOME` menu, then `Format`, `Move or Copy Sheet...`, and then by selecting a workbook and sheet location, selecting `Create a copy` and clicking `OK`.
+
+In order to have a fully separate, standalone second report, we need to copy both the Pivot Chart and the underlying Pivot Table. The easiest way to do this is to:
+
+1. Move the Pivot Chart back to the same sheet as the Pivot Table by right-clicking in the plot area, selecting `Move Chart...` and placing it as an object in the sheet where it started.
+2. Go to `HOME` >> `Format` >> `Move or Copy Sheet...`, select `Create a copy`, and move it to a new location in the same workbook.
+3. Move each chart into its own tab using the same method used above.
+
+![](C:/Users/nmader/Google Drive/Chapin Hall/Chapin Hall - TCOM/Pivot Chart exercise/captures/duplicate-pivot-chart.gif)
+
+NSM: consider adding a section to talk about what to do when their data updates
+
+# Parting Thoughts
+
+There are many more features that can be accessed using Pivot Charts, and many additional types of reports that can be made. If you have gotten this far, we encourage you to keep being creative, and share any good ideas that you have with us at [code@chapinhall.org](mailto:code@chapinhall.org) so that we can share that with the rest of the TCOM community and/or continue to build on this article or others like it.
+
+One way to take your report generation to the next level is to learn to write programming code. Whereas creating these reports was relatively manual point-and-click operations, a programming "script" represents a written set of instructions that your computer can (often quite rapidly) re-execute when your data updates, or to perform the same operation dozens or hundreds of time to automatically generate customized reports. Most coding languages also offer the ability to perform a wide range of operations, from interacting with databases, cleaning and reshaping data, performing statistical analysis, and generating visualizations. 
+
+The TCOM group has been increasingly using the [`R` Programming Language](https://en.wikipedia.org/wiki/R_(programming_language)) since it is free and open source, meaning that it (and none of its continually-evolving features) have any cost, and that there is a large community of developers that are continually improving what it can do. In addition to many [great](https://www.datacamp.com/courses/free-introduction-to-r) [free](https://www.codeschool.com/courses/try-r) [ways](https://www.edx.org/course/introduction-r-data-science-microsoft-dat204x-5) to go about learning R, the CODA group at Chapin Hall is itself building a number of R scripts that will share with the TCOM community and continually update.
+
