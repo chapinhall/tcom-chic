@@ -1,0 +1,88 @@
+---
+title: "CANS Actionable Needs Report `r format(Sys.time(), '%m/%d/%y')`"
+output:
+  flexdashboard::flex_dashboard:
+    theme: united
+---
+
+```{r setup template, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, error = FALSE, message = FALSE)
+library(ggplot2)
+library(scales)
+library(lubridate)
+library(DT)
+```
+
+<!-- This Dashboard Template file is built using R's [`flexdashboard` package](http://rmarkdown.rstudio.com/flexdashboard/), which provides surprisingly simple syntax for how to create and position layout elements. -->
+
+`r c(prog)` {.tabset}
+--------------------------------------------------------------------------------
+
+### Actionable Items x Time
+
+```{r, warning = FALSE}
+cc_init_tai <-
+  cc_init_prog %>%
+    # Begin with the program's data on initial intakes
+  mutate(year_of_entry = year(`Date of Entry`)) %>%
+    # Add a new column for year of entry
+  group_by(year_of_entry) %>%
+    # Prepare the data to perform calculations by year
+  summarize(tai_avg = mean(tai, na.rm = TRUE)) %>%
+    # Calculate average client total actionable items by year
+  filter(!is.na(tai_avg))
+    # Filter out any years that have "NA" values for the average calculation
+
+year_labels <- with(cc_init_tai, min(year_of_entry):max(year_of_entry))
+ggplot(data = cc_init_tai, aes(x = year_of_entry, y = tai_avg)) +
+  geom_point(size = 2, color = "darkgreen") + 
+  geom_line( size = 1, color = "darkgreen") + 
+  scale_x_continuous(breaks = year_labels,
+                     labels = year_labels) +
+  labs(title = "Total Actionable Items by Year of Entry",
+       x = "Year of Entry",
+       y = "Average Number of Actionable Items") +
+  theme_classic()
+```
+
+### Actionable Items x Reassessment
+
+```{r, warning = FALSE}
+cc_tai <- 
+  cc_prog %>%
+    # Begin with the program's cans/client data
+  group_by(`Client ID`, `Enrollment ID`, `Assessment Type`) %>%
+    # Prepare the data to perform by client, episode, and assessment type (i.e. initial/reassessment/discharge)
+  summarize(tai = sum(actionable_item, na.rm = TRUE)) %>%
+    # Calculate total actionable items on that "by" basis
+  group_by(`Assessment Type`) %>%
+    # Now prepare the data to perform calculations by assessment type
+  summarize(tai_avg = mean(tai, na.rm = TRUE)) %>%
+    # Calculate average total actionable items by assessment type
+  mutate(at_ordered = factor(`Assessment Type`, levels = c("Initial", "Reassessment", "Discharge")),
+         at_num = as.numeric(at_ordered))
+    # Establish a specific ordering for the values of "Assessment Type", and create
+    # a numeric equivalent that we'll use for the x-axis of our graph
+
+ggplot(data = cc_tai, aes(x = at_num, y = tai_avg)) +
+  geom_point(size = 2, color = "darkblue") + 
+  geom_line( size = 1, color = "darkblue") + 
+  scale_x_continuous(breaks = cc_tai$at_num, labels = cc_tai$at_ordered) +
+  labs(title = "Total Actionable Items by Assessment Type",
+       x = "Assessment Type",
+       y = "Average Number of Actionable Items") +
+  theme_classic()
+```
+
+
+### Client Table with Discharge Prediction
+
+```{r, warning = FALSE}
+cc_init_prog_sub <-
+  cc_init_prog %>%
+    # Begin with the program's data on client intake assessments
+  select(-`Program Type`, -`Program Number`, -`Program Name`)
+    # Remove columns related to program information (since they're not needed in context)
+datatable(cc_init_prog_sub, options = list(pageLength = 50), fillContainer = FALSE)
+```
+

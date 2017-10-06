@@ -1,0 +1,159 @@
+---
+title: "R Demo - Prepare and Model CANS Data"
+author: "Nick Mader, Chapin Hall at the University of Chicago <nmader@chapinhall.org>"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+---
+
+```{r setup data prep, include=FALSE, warning = FALSE, error = FALSE, message = FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+opts_knit$set(root.dir = "C:/Users/nmader/Google Drive/Chapin Hall/Presentations/TCOM - 2017-10/R Demo")
+  # NOTE: you will have to replace the above path with the file location on your
+  # own computer. PC users: note that any backslashes need to be replaced as 
+  # forward slashes.
+```
+
+# Introduction
+
+This demo of R work was prepared for the 2017 TCOM Conference in San Antonio, TX. This document--the mixture of plain English, programming code, and output--was generated using [R Markdown](https://support.rstudio.com/hc/en-us/articles/205368677-R-Markdown-Dynamic-Documents-for-R).
+
+Finally, the data that is used for this demo is completely fake; the columns and values resemble those in typical CANS data sets, but the values and data partners are not representative of real data, and should not be interpreted as such.
+
+## Set Up Workspace
+
+The following code sets our working directories, and loads in several program packages that provide ways to read Excel files, and easily perform data manipulations.
+
+```{r load packages and set directory}
+#install.packages(c("readxl", "dplyr", "tidyr"))
+  # NOTE: you will have to uncomment and run the above line to install the
+  # above packages if they are not already available
+library(readxl)
+library(dplyr, warn.conflicts = FALSE)
+library(tidyr)
+library(DT)
+```
+
+The following are helpful references for using and learning more about the `dplyr` and `tidyr` packages:
+
+* [Data Processing with dplyr & tidyr](https://rpubs.com/bradleyboehmke/data_wrangling)
+* [Introducing tidyr](https://blog.rstudio.org/2014/07/22/introducing-tidyr/)
+
+# Prepare Data
+
+## Read Data
+
+First, read the data from each of the sheets of the Excel file with our data.
+
+```{r read data}
+cans   <- read_xlsx("Sample CANS and Client Dataset 10.2017.xlsx", sheet = "CANS Data")
+client <- read_xlsx("Sample CANS and Client Dataset 10.2017.xlsx", sheet = "Client Data") %>%
+  mutate(days_to_discharge = as.numeric(`Date of Discharge` - `Date of Entry`))
+```
+
+Note--the `DT` package includes the `datatable` function which generates easy and browse-able representations of tables in Markdown documents. Read more about the DT package at [this link](https://rstudio.github.io/DT/).
+
+## Subset, Merge, and Reshape Data
+
+```{r subset}
+# Subset CANS items from all assessments
+itemCols <- grep("^Behavioral|^Risk|^Life|^Child", colnames(cans), value = TRUE)
+cans_sub <- 
+  cans %>%
+  select(`Client ID`, `Enrollment ID`, `Assessment Type`, itemCols)
+
+```
+
+Next, we reshape the CANS so that each record represents a single CANS item score. This is more convenient for doing columns, since there is just one column--score--that we need to do operations on, at the same time that all contextual information, e.g. item domain and description is associated with it in other columns.
+
+```{r reshape the cans data to long}
+cans_long <- 
+  cans_sub %>%
+  gather(key = item, value = score, one_of(itemCols)) %>%
+    # This reshapes the 
+  arrange(`Client ID`, `Enrollment ID`) %>%
+  separate(item, c("domain", "item_desc"), sep = " - ") %>%
+    # This splits item info, e.g.: "Behavioral/Emotional Needs - Conduct" into
+    # domain: "Behavioral/Emotional Needs" and item_desc: "Conduct"
+  mutate(actionable_item = ifelse(score >= 2, 1, 0))
+    # Dichotomize the CANS scores into a measure of whether the item is actionable or not
+```
+
+For the analysis  coming analysis, filter to only initial assessments, and calculate number of actionable items.
+
+```{r filter cans to just initial assessments}
+cans_init <-
+  cans_long %>%
+  filter(`Assessment Type` == "Initial") %>%
+  group_by(`Client ID`, `Enrollment ID`) %>%
+  summarize(tai = sum( actionable_item, na.rm = TRUE))
+```
+
+Merge client data into the full set of overall assessment data, to be used for generating program reports which will show actionable needs over time.
+
+```{r merge client data to all cans}
+cc <-
+  merge(x = cans_long,
+        y = client,
+        by = c("Client ID", "Enrollment ID"), 
+        all = TRUE)
+```
+
+Merge client data into the data on initial assessments, to be used in the analysis predicting length of episode with data at intake.
+
+```{r merge client data to initial cans}
+cc_init <-
+  merge(x = cans_init,
+        y = client,
+        by = c("Client ID", "Enrollment ID"), 
+        all = TRUE)
+```
+
+
+## Analyze Data and Predict Outcomes
+
+First, separate data into clients who have already been discharged (who can be used in analysis) and those who haven't, who we'll generate predictions for.
+
+```{r subset by discharged status}
+cc_init_compl   <- filter(cc_init, !is.na(days_to_discharge))
+cc_init_incompl <- filter(cc_init,  is.na(days_to_discharge))
+```
+
+Run a linear regression model to predict the length of an episode based on the total number of actionable items at intake.
+
+```{r run linear regression}
+days_tai <- lm(days_to_discharge ~ tai,
+               data = cc_init_compl)
+summary(days_tai)
+```
+
+Predict length of episode for individuals whose episode is not complete.
+
+```{r run prediction}
+cc_init_incompl$days_to_discharge_pred <- 
+  round(predict(days_tai, newdata = cc_init_incompl), 0)
+```
+
+
+# Generate Reports
+
+The following code loops through all of the programs represented in the data, identifies their data, and generates a dashboard with their specific data.
+
+The `render()` function in the code below uses an external dashboard template file--in this case, the `R demo - TCOM-2017 - Dashboard Template.Rmd` file included with this demo--and generates an `html` file specific to each program.
+
+The Dashboard Template file is built using R's [`flexdashboard` package](http://rmarkdown.rstudio.com/flexdashboard/), which provides surprisingly simple syntax for how to create and position layout elements.
+
+```{r generate reports, results = "hide"}
+for (prog in unique(cc$`Program Name`)){
+  cc_prog      <- filter(cc,              `Program Name` == prog)
+  cc_init_prog <- filter(cc_init_incompl, `Program Name` == prog)
+  rmarkdown::render(input = "R demo - TCOM-2017 - Dashboard Template.Rmd",
+                    output_format = "html_document",
+                    output_file = paste0("reports/CANS Report - ", prog, ".html"),
+                    quiet = TRUE)
+}
+```
+
