@@ -1,0 +1,888 @@
+---
+title: "`r paste('Quality Management Plan, Quarterly Report for', qtrLabelLong, '--', ru)`"
+date: "Generated on `r format(Sys.time(), '%m/%d/%y')`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, error = FALSE,
+                      fig.height = 6, fig.width = 8)
+
+package.list <- c("knitr", "dplyr", "tidyr", "ggplot2", "scales", "ggThemeAssist", "stringr", "lubridate")
+for (p in package.list){
+  if (!p %in% installed.packages()[, "Package"]) install.packages(p)
+  library(p, character.only = TRUE)
+}
+
+pn <- function(x) prettyNum(x, big.mark = ",")
+
+```
+
+```{r set parameters}
+axisTextSize <- 12
+axisTitleSize <- 14
+plotTitleSize <- 16
+plotSubtitleSize <- 14
+
+## If set to true, this report will print out all Assessment IDs (and for WISe Recommendation reports, ConsumerIDs)
+
+PrintIDs <- FALSE
+
+if(PrintIDs){
+  knitr::opts_chunk$set(fig.height = 10)
+}
+```
+
+All assessments included in this plan were completed between `r paste(dateRange)`, using data entered as of `r paste(datePull)`.  
+
+## Screener Timeliness {.tabset}
+
+```{r timeliness data prep}
+
+myFTime <-
+  myFTime %>%
+  mutate(pctLate = pctlt30Late + pctgt30Late,
+         nLate = nlt30Late + ngt30Late) 
+
+plotFull <- arrange(myFTime, startYear, startQtr)   %>%
+  filter(startYear >= myStartYear) %>%
+  within({
+    n <- nLate +nOnTime
+    yrQt <- paste(startYear, startQtr, sep = "-")
+    fYrQt <- factor(yrQt, levels = yrQt)
+    nYrQt <- as.numeric(fYrQt)
+    nStartQtr <- as.numeric(startQtr)
+    fStartYear <- factor(startYear, levels = sort(unique(startYear)))
+  }) %>%
+  filter(n >= 10)
+
+plotScreen <- arrange(MySTime, startYear, startQtr)   %>%
+  filter(startYear >= myStartYear) %>%
+  within({
+    n <- nLate + nOnTime
+    yrQt <- paste(startYear, startQtr, sep = "-")
+    fYrQt <- factor(yrQt, levels = yrQt)
+    nYrQt <- as.numeric(fYrQt)
+    nStartQtr <- as.numeric(startQtr)
+    fStartYear <- factor(startYear, levels = sort(unique(startYear)))
+  }) %>%
+  filter(n >= 10)
+
+# Line chart function for rec rates, time rates, and continue rates
+PlotWISe <- function(d, xvar, xlabvar, yvar, xaxislab, mytitle, xangle = 0, xtextsize = 9, mycolor = NULL){
+  
+  if(!PrintIDs){
+    d[d$n < 10, yvar] <- NA
+  }
+  
+  if (is.null(mycolor)){
+    p <- ggplot(data = d, aes_string(x = xvar, y = yvar))
+  } else {
+    p <- ggplot(data = d, aes_string(x = xvar, y = yvar, color = mycolor)) +
+      scale_color_discrete(name = "") +
+      theme(legend.position = "bottom")
+  }
+  p <- p +
+    geom_line() + geom_point() +
+    labs(x = xaxislab, y = "Percent of Clients", title = mytitle) +
+    scale_x_continuous(breaks = d[, xvar][[1]], labels = d[, xlabvar][[1]]) +
+    scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
+    theme(axis.text     = element_text(size = axisTextSize),
+          axis.title    = element_text(size = axisTitleSize),
+          axis.text.x   = element_text(angle = xangle, hjust = 1, size = xtextsize),
+          plot.title    = element_text(hjust = 0.5, size = plotTitleSize),
+          plot.subtitle = element_text(hjust = 0.5, size = plotSubtitleSize))
+  if (PrintIDs){
+  data <- d
+  IDs <- unlist(strsplit(data$IDs, split=", ")) %>%
+    unique()
+  if (grepl("rWISe", cn(data[,7]))){
+    caption <- paste(c("Consumer IDs Included:", IDs), collapse = ", ")
+  } else {
+    caption <- paste(c("Assessment IDs Included:", IDs), collapse = ", ")
+  }
+  caption <- paste0(strwrap(caption, 133), sep="", collapse="\n")
+  p <- p + 
+    labs(caption = caption) +
+    theme(plot.caption=element_text(size=8, hjust=0, margin=margin(t=15)))
+  }
+  return(print(p))
+}
+
+```
+
+
+The following graphs report by cohort year and quarter on the percent of clients who received an
+on-time screener (within 10 business days of referral). Each point on the graph indicates the 
+percent of persons in a given quarter who received an on-time screener.
+
+**Note** that there may be fewer cohort years represented than exist in the date, as
+this report does not display any information calculated off of groups of clients 
+smaller than 10. While there are clients being served in these cohorts, those reports are suppressed.
+
+### By Quarter
+
+```{r screen q plot, results = 'asis'}
+
+if ((nrow(plotScreen) != 0)|PrintIDs){
+PlotWISe(plotScreen, xvar = "nYrQt", xlabvar = "fYrQt", yvar = "pctOnTime",
+         xaxislab = "Quarter", xangle = 90,
+         mytitle = "Percent Screeners On Time by Quarter")
+} else {
+  cat("**A graph cannot be generated, because there were no quarters in which 10 or more clients were enrolled and received screeners.**")
+}
+```
+
+### By Quarter, Contrasting Year
+
+```{r screen qy plot, results = 'asis'}
+
+if ((nrow(plotScreen) != 0)|PrintIDs){
+PlotWISe(d = plotScreen, xvar = "nStartQtr", xlabvar = "startQtr", yvar = "pctOnTime",
+         xaxislab = "Quarter", mycolor = "fStartYear",
+         mytitle = "Percent Screeners On Time by Quarter, Comparing Years")
+}  else {
+  cat("**A graph cannot be generated, because there were no quarters in which 10 or more clients were enrolled and received screeners.**")
+}
+  
+```
+
+## Full Assessment Timeliness {.tabset}
+
+The following graphs report by cohort year and quarter on the percent of clients who received an on-time assessment (within 30 days of the last initial screener). Each point on the graph indicates the percent of persons in a given quarter who received an on-time full assessment. 
+
+**Note** that there may be fewer cohort years represented than exist in the date, as this report does not display any information calculated off of groups of clients smaller than 10. While there are clients being served in these cohorts, those reports are suppressed.
+
+### By Quarter
+```{r full assess q plot, results = 'asis'}
+if((nrow(plotFull) != 0)|PrintIDs) {
+  PlotWISe(plotFull, xvar = "nYrQt", xlabvar = "fYrQt", yvar = "pctOnTime",
+           xaxislab = "Quarter", xangle = 90,
+           mytitle = "Percent Assessments On Time by Quarter")
+}  else {
+  cat("**A graph cannot be generated, because there were no quarters in which 10 or more clients were enrolled.**")
+}
+```
+
+### By Quarter, Contrasting Year
+```{r full qy plot, results = 'asis'}
+if ((nrow(plotFull)|PrintIDs) != 0){
+PlotWISe(d = plotFull, xvar = "nStartQtr", xlabvar = "startQtr", yvar = "pctOnTime",
+         xaxislab = "Quarter", mycolor = "fStartYear",
+         mytitle = "Percent Assessments On Time by Quarter, Comparing Years")
+}  else {
+  cat("**A graph cannot be generated, because there were no quarters in which 10 or more clients were enrolled.**")
+}
+```
+
+
+## Treatment Needs at Entry {.tabset}
+
+The graphs below report point-in-time (at Initial assessment) and comparison-across-time (between Initial and reassessment) percentages of clients experiencing particular actionable needs (items rated as a '2' or '3') on the CANS.
+
+These calculations are based off of the Treatment needs at entry are identified among items in the "Behavioral/Emotional Needs", "Life Functioning", and "Risk Behavior" domains.  The figure below identifies the top six actionable needs at initial intake in the Behavioral and Emotional Needs and Risk Factors Domain AND the top four actionable needs at initial intake in the Life Domain Functioning. If there is a tie between two top six/top four treatment needs in these domains, both items are included in the figure, which sometimes causes than ten items to be displayed. If applicable, the figure shows what percentage of clients continue to have actionable needs on these same items as of a later reassessment.
+
+**Note** that there may be fewer assessment periods represented in this series of graphs than just above. This is a consequence of the fact that this report does not display any information calculated off of groups of clients smaller than 10. While there are clients being served at these later periods, those reports are suppressed.
+
+```{r treatment needs data prep}
+myTrtSub <- 
+  myTrt %>% 
+  select(-matches("nNeeds")) %>%
+  gather("var", "val", rNeeds_init, rNeeds_now) %>%
+  within({
+    sVal <- sprintf("%2.0f%%", 100*val)
+  }) %>%
+  arrange(cohortYr, -val)
+```
+
+```{r treatment needs graphing function}
+
+plotTrtNeeds <- function(myPd, mySample, myCoh){
+  myTrtSub_pd <- 
+    myTrtSub %>%
+    filter(assessPd == myPd, sample == mySample, cohortYr == myCoh) %>%
+    group_by(assessPd, var)  %>%
+    within(fItem <- factor(item, levels = item[var == "rNeeds_init"]))
+  
+  if (pd == "Initial") myTrtSub_pd <- filter(myTrtSub_pd, grepl("init", var))
+  pdName <- gsub("mo$", " Months", myPd)
+  
+  
+  if ((min(myTrtSub_pd$n, na.rm = TRUE) >= 10)|PrintIDs) {
+  
+    if (!PrintIDs){  
+    myTrtSub_pd <- 
+      myTrtSub_pd %>%
+      filter(n >= 10)
+    }
+
+  myPlot <- 
+    ggplot(data = myTrtSub_pd, aes(x = fItem, y = val, fill = var)) + 
+      geom_bar(stat = "identity", position = "dodge", width = 0.5) +
+      labs(title = paste0("Treatment Needs at ", pdName, " Assessment"),
+           subtitle = paste(c("All"           = paste("All Clients With Assessment at", pdName),
+                              "dischargeonly" = paste("Clients Discharged After",          pdName),
+                            "continueonly" = paste("Clients Continuing After",          pdName))[mySample],
+                            "-- n =", pn(max(myTrtSub_pd$n))),
+           x = "", y = "Percent Needing Treatment") +
+      facet_wrap(~ domain, scales = "free_x") +
+      geom_text(aes(label = sVal), vjust = -1, hjust = 0.5, size = 3, position = position_dodge(width = 0.6)) +
+      scale_y_continuous(labels = percent, limits = c(0, 1)) +
+      scale_fill_manual(name = "", values = c("lightblue", "darkblue"), labels = c("Initial", pdName)) +
+      theme(legend.position = "bottom",
+            legend.text   = element_text(size = axisTextSize),
+            axis.text.x   = element_text(angle = 35, hjust = 1, size = 9),
+            axis.text     = element_text(size = axisTextSize),
+            axis.title    = element_text(size = axisTitleSize),
+            plot.title    = element_text(hjust = 0.5, size = plotTitleSize),
+            plot.subtitle = element_text(hjust = 0.5, size = plotSubtitleSize))
+  if (PrintIDs){
+    IDs <- unlist(strsplit(myTrtSub_pd$IDs, split=", ")) %>%
+      unique()
+    caption <- paste(c("Reassessment IDs Included:", IDs), collapse = ", ")
+    caption <- paste0(strwrap(caption, 134), sep="", collapse="\n")
+  myPlot <- myPlot + 
+    labs(caption = caption) +
+    theme(plot.caption=element_text(size=8, hjust=0, margin=margin(t=15)))
+  
+    }
+  return(print(myPlot))
+  } else {
+   asis_output(cat("\n\n", "**A graph cannot be generated, because in the given cohort year and sample, fewer than 10 clients were assessed.**", "\n\n"))
+  }
+}
+
+# /!\ In the above (and in other graphs), need to be aware of the fact that when calculating
+# the n, not all children have non-NA values for all items. By using the "max(<data>$n)" we
+# get the number of youth for the most-assessed item(s), but some items may be based on a 
+# smaller n assessed. Make sure to review this to make sure that this is communicated properly.
+```
+
+### Across All Clients {.tabset}
+
+```{r treatment needs at entry - full sample for pd, results = 'asis'}
+myCohs <- 
+  myTrtSub %>%
+  filter(sample == "All") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <-
+    myTrtSub %>%
+    filter(sample == "All", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+  for (pd in myPds){
+    cat("\n#####", pd, "\n")
+    plotTrtNeeds(myCoh = coh, myPd = pd, mySample = "All")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+```
+
+### Discharged After Reassessment {.tabset}
+
+The figures below focus on only clients discharged from care as of the indicated reassessment.
+
+```{r treatment needs at entry - only those discharged in pd, results = 'asis'}
+myCohs <- 
+  myTrtSub %>%
+  filter(sample == "dischargeonly") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <-
+    myTrtSub %>%
+    filter(sample == "dischargeonly", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+  for (pd in myPds){
+    cat("\n#####", pd, "\n")
+    plotTrtNeeds(myCoh = coh, myPd = pd, mySample = "dischargeonly")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+```
+
+### Continuing After Reassessment {.tabset}
+
+The figures below focus on only clients continuing in care as of the indicated reassessment.
+
+```{r treatment needs at entry - only those continuing in pd, results = 'asis'}
+myCohs <- 
+  myTrtSub %>%
+  filter(sample == "continueonly") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <-
+    myTrtSub %>%
+    filter(sample == "continueonly", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+  for (pd in myPds){
+    cat("\n#####", pd, "\n")
+    plotTrtNeeds(myCoh = coh, myPd = pd, mySample = "continueonly")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+```
+
+## Useful Strengths at Entry {.tabset}
+
+These graphs report percentages of clients experiencing particular useful and centerpiece strengths (those rated as a '0' or '1' on the CANS in the Youth Strengths domain) at Initial assessment and, if applicable, the percentage of client scores on these same items at a later reassessment.
+
+```{r useful strengths data prep}
+myUseSub <- 
+  myUse %>%
+  select(-matches("nStr")) %>%
+  gather("var", "val", rStr_init, rStr_now) %>%
+  within({
+    sVal <- sprintf("%2.0f%%", 100*val)
+  }) %>%
+  arrange(cohortYr, assessPd)
+```
+
+```{r useful strengths graphing function}
+plotUseStrs <- function(myPd, mySample, myCoh){
+  myUseSub_pd <- 
+    myUseSub %>%
+    filter(assessPd == myPd, sample == mySample, cohortYr == myCoh) %>%
+    arrange(var, -val)  %>%
+    within(fItem <- factor(item, levels = unique(item[var == "rStr_init"])))
+  
+  if (pd == "Initial") myUseSub_pd <- filter(myUseSub_pd, grepl("init", var))
+  pdName <- gsub("mo$", " Months", myPd)
+  
+  if ((sum(myUseSub_pd$n, na.rm = TRUE) >= 10*nrow(myUseSub_pd))|PrintIDs) {
+  
+    if (!PrintIDs){
+      myUseSub_pd <- 
+        myUseSub_pd %>%
+        filter(n >= 10)
+    }
+  
+  myPlot <-
+    ggplot(data = myUseSub_pd, aes(x = fItem, y = val, fill = var)) + 
+      geom_bar(stat = "identity", position = "dodge", width = 0.5) +
+      labs(title = paste0("Useful Strengths at ", pdName, " Assessment"),
+           subtitle = paste(c("All"           = paste("All Clients With Assessment at", pdName),
+                              "dischargeonly" = paste("Clients Discharged After",       pdName),
+                              "continueonly"  = paste("Clients Continuing After",       pdName))[mySample],
+                            "-- n = ", pn(max(myUseSub_pd$n))),
+           x = "", y = "Percent With Strength") +
+      geom_text(aes(label = sVal), vjust = -1, size = 3, position = position_dodge(width = 0.6)) +
+      scale_y_continuous(labels = percent, limits = c(0, 1)) +
+      scale_fill_manual(name = "", values = c("lightgreen", "darkgreen"), labels = c("Initial", pdName)) +
+      theme(legend.position = "bottom",
+            legend.text   = element_text(size = axisTextSize),
+            axis.text     = element_text(size = axisTextSize),
+            axis.text.x   = element_text(angle = 30, hjust = 1),
+            axis.title    = element_text(size = axisTitleSize),
+            plot.title    = element_text(hjust = 0.5, size = plotTitleSize),
+            plot.subtitle = element_text(hjust = 0.5, size = plotSubtitleSize))
+  if (PrintIDs){
+    IDs <- unlist(strsplit(myUseSub_pd$IDs, split=", ")) %>%
+      unique()
+    caption <- paste(c("Reassessment IDs Included:", IDs), collapse = ", ")
+    caption <- paste0(strwrap(caption, 134), sep="", collapse="\n")
+  myPlot <- myPlot + 
+    labs(caption = caption) +
+    theme(plot.caption=element_text(size=8, hjust=0, margin=margin(t=15)))
+  }
+  return(print(myPlot))
+  } else {
+   asis_output(cat("\n\n", "**A graph cannot be generated, because in the given cohort year and sample, fewer than 10 clients were assessed.**", "\n\n"))
+  }
+}
+```
+
+### Across All Clients {.tabset}
+
+```{r useful strengths at entry - full sample for pd, results = 'asis'}
+myCohs <- 
+  myUseSub %>%
+  filter(sample == "All") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <- 
+    myUseSub %>%
+    filter(sample == "All", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+  for (pd in myPds){
+    cat("\n#####", pd, "\n")
+    plotUseStrs(myPd = pd, myCoh = coh, mySample = "All")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+```
+
+### Discharged After Reassessment {.tabset}
+
+The figures below focus on only clients discharged from care as of the indicated reassessment.
+
+```{r useful strengths at entry - only those discharged in pd, results = 'asis'}
+myCohs <- 
+  myUseSub %>%
+  filter(sample == "dischargeonly") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <- 
+    myUseSub %>%
+    filter(sample == "dischargeonly", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+  for (pd in myPds){
+    cat("\n#####", pd, "\n")
+    plotUseStrs(myPd = pd, myCoh = coh, mySample = "dischargeonly")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+```
+
+### Continuing After Reassessment {.tabset}
+
+The figures below focus on only clients continuing in care as of the indicated reassessment.
+
+```{r useful strengths at entry - only those continuing in pd, results = 'asis'}
+myCohs <- 
+  myUseSub %>%
+  filter(sample == "continueonly") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <- 
+    myUseSub %>%
+    filter(sample == "continueonly", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+  for (pd in myPds){
+    cat("\n#####", pd, "\n")
+    plotUseStrs(myPd = pd, myCoh = coh, mySample = "continueonly")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+
+```
+
+
+## Intensity of Actionable Needs and Strengths {.tabset}
+
+The following graphs show the average *intensity* of actionable needs and strengths at entry compared to values in future periods, calculated as the averaged sums of all scores of 2 and 3 across items--in the domains of Youth Strengths, Behavioral and Emotional Needs, Life Domain Functioning, and Risk Behaviors.
+
+```{r actionable needs reassessment comparison data prep}
+
+myActSub <-
+  myAct %>%
+  filter(!is.na(assessPd)) %>%
+  select(-starts_with("avgActAssess")) %>%
+  within(pn <- pn(n)) %>%
+  gather("var", "val", avgActNeeds_c_init, avgActNeeds_c_now) %>%
+  within(pn <- pn(n)) %>%
+  arrange(cohortYr, assessPd)
+
+```
+
+```{r actionable needs reassessment graphing function}
+
+plotActNeeds <- function(myPd, mySample, myCoh){
+  myActSub_pd <- 
+    myActSub %>%
+    filter(assessPd == myPd, sample == mySample, cohortYr==myCoh) %>%
+    arrange(var, val)
+
+  if (pd == "Initial") myActSub_pd <- filter(myActSub_pd, grepl("init", var))
+  pdName <- gsub("mo$", " Months", myPd)
+  
+  if ((sum(myActSub_pd$n, na.rm = TRUE) >= 10*nrow(myActSub_pd))|PrintIDs) {
+    if(!PrintIDs){
+      myActSub_pd <-
+        myActSub_pd %>%
+        filter(n >= 10)
+    }
+  myPlot <- 
+    ggplot(data = myActSub_pd, aes(x = "", y = val, fill = var)) + 
+      geom_bar(stat = "identity", position = "dodge", width = 0.5) +
+      labs(title = paste0("Overall Actionable Needs by Assessment Period"),
+           subtitle = paste(c("All"           = paste("All Clients With Assessment at", pdName),
+                              "dischargeonly" = paste("Clients Discharged After",       pdName),
+                              "continueonly" = paste("Clients Continuing After",        pdName))[mySample],
+                              "-- n = ", pn(max(myActSub_pd$n))),
+           x = "", y = "Avg Intensity of Actionable Needs") +
+      scale_y_continuous(limits = c(0, ceiling(max(myActSub$val))*1.2)) +
+      scale_fill_manual(name = "", values = c("sandybrown", "saddlebrown"), labels = c("Initial", pdName)) +
+      geom_text(aes(label = sprintf("%1.1f", round(myActSub_pd$val, 1))), vjust = -1, size = 5, position = position_dodge(width = 0.5)) +
+      theme(legend.position = "bottom",
+            legend.text   = element_text(size = axisTextSize),
+            axis.text     = element_text(size = axisTextSize),
+            axis.title    = element_text(size = axisTitleSize),
+            plot.title    = element_text(hjust = 0.5, size = plotTitleSize),
+            plot.subtitle = element_text(hjust = 0.5, size = plotSubtitleSize))
+  if (PrintIDs){
+    IDs <- unlist(strsplit(myActSub_pd$IDs, split=", ")) %>%
+      unique()
+    caption <- paste(c("Reassessment IDs Included:", IDs), collapse = ", ")
+    caption <- paste0(strwrap(caption, 134), sep="", collapse="\n")
+  myPlot <- myPlot + 
+    labs(caption = caption) +
+    theme(plot.caption=element_text(size=8, hjust=0, margin=margin(t=15)))
+  }
+    return(print(myPlot))
+  } else {
+   asis_output(cat("\n\n", "**A graph cannot be generated, because in the given cohort year and sample, fewer than 10 clients were assessed.**", "\n\n"))
+  }
+}
+  
+```
+
+### Across All Clients {.tabset}
+
+```{r actionable needs reassessment comparison - full sample for pd, results = 'asis'}
+myCohs <- 
+  myActSub %>%
+  filter(sample == "All") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <- 
+    myActSub %>%
+    filter(sample == "All", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+  
+    for (pd in myPds){
+      cat("\n#####", pd, "\n")
+      plotActNeeds(myPd = pd, myCoh = coh, mySample = "All")
+      cat("\n\n")
+    }
+  cat("\n\n")
+}
+```
+
+### Discharged After Reassessment {.tabset}
+
+The figures below focus on only clients discharged from care as of the indicated reassessment.
+
+```{r actionable needs reassessment comparison - only those discharged in pd, results = 'asis'}
+myCohs <- 
+  myActSub %>%
+  filter(sample == "dischargeonly") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <- 
+    myActSub %>%
+    filter(sample == "dischargeonly", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+
+  for (pd in myPds){
+    cat("\n#####", pd, "\n")
+    plotActNeeds(myPd = pd, myCoh = coh, mySample = "dischargeonly")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+
+```
+
+
+### Continuing After Reassessment {.tabset}
+
+The figures below focus on only clients continuing in care as of the indicated reassessment.
+
+```{r actionable needs reassessment comparison - only those continuing in pd, results = 'asis'}
+myCohs <- 
+  myActSub %>%
+  filter(sample == "continueonly") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <- 
+    myActSub %>%
+    filter(sample == "continueonly", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+
+  for (pd in myPds){
+    cat("\n#####", pd, "\n")
+    plotActNeeds(myPd = pd, myCoh = coh, mySample = "continueonly")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+
+```
+
+
+## Number of Actionable Needs
+
+These graphs report an average *number* of all actionable needs at entry--i.e. the number of items which are scored with either a '2' or '3' on the CANS--in the domains of Behavioral and Emotional Needs, Life Domain Functioning, and Risk Behaviors. These graphs show scores at Initial assessment and, if applicable, the average number of actionable needs at a later reassessment period for the subset of clients assess at that time.
+
+The actionable needs at entry represents the average number of all strengths and needs items which are scored with either a '2' or '3'.
+
+### Comparison Across Time {.tabset}
+
+```{r}
+myCohM <- arrange(myCohM, startYear, startMonth) %>%
+  filter(startYear >= myStartYear) %>%
+  within({
+    yrMo <- paste(startYear, startMonth, sep = "-")
+    fYrMo <- factor(yrMo, levels = yrMo)
+    nYrMo <- as.numeric(fYrMo)
+    fStartYear <- factor(startYear, levels = sort(unique(myCohM$startYear)))
+  })
+myCohQ <- arrange(myCohQ, startYear, startQtr)   %>%
+  filter(startYear >= myStartYear) %>%
+  within({
+    yrQt <- paste(startYear, startQtr, sep = "-")
+    fYrQt <- factor(yrQt, levels = yrQt)
+    nYrQt <- as.numeric(fYrQt)
+    nStartQtr <- as.numeric(startQtr)
+    fStartYear <- factor(startYear, levels = sort(unique(myCohM$startYear)))
+  })
+
+yMin <- floor(min(myCohM$mActNeeds))
+yMax <- ceiling(max(myCohM$mActNeeds))
+
+NComments <- function(d){
+  return(ifelse(any(d$n<10),
+                "Note that some points in the graph below are suppressed because the overall number of clients assessed in that given time period falls below 10, which is the cutoff used to ensure client privacy.",
+               ""))
+}         
+PlotCohort <- function(d, xvar, xlabvar, yvar, xaxislab, mytitle, xangle = 0, xtextsize = 9, mycolor = NULL){
+  if (!PrintIDs){
+    d[d$n < 10, yvar] <- NA
+  }
+  
+  if (is.null(mycolor)){
+    p <- ggplot(data = d, aes_string(x = xvar, y = yvar))
+  } else {
+    p <- ggplot(data = d, aes_string(x = xvar, y = yvar, color = mycolor)) +
+      scale_color_discrete(name = "") +
+      theme(legend.position = "bottom")
+  }
+  p <- p +
+    geom_line() + geom_point() +
+    labs(x = xaxislab, y = "Avg # Actionable Needs", title = mytitle) +
+    scale_x_continuous(breaks = d[, xvar][[1]], labels = d[, xlabvar][[1]]) +
+    scale_y_continuous(breaks = 0:yMax, labels = 0:yMax, limits = c(0,1.2*yMax)) +
+    theme(axis.text     = element_text(size = axisTextSize),
+          axis.title    = element_text(size = axisTitleSize),
+          axis.text.x   = element_text(angle = xangle, hjust = 1, size = xtextsize),
+          plot.title    = element_text(hjust = 0.5, size = plotTitleSize),
+          plot.subtitle = element_text(hjust = 0.5, size = plotSubtitleSize))
+  if (PrintIDs){
+    data <- d
+    IDs <- unlist(strsplit(data$IDs, split=", ")) %>%
+      unique()
+    caption <- paste(c("Reassessment IDs Included:", IDs), collapse = ", ")
+    caption <- paste0(strwrap(caption, 134), sep="", collapse="\n")
+  p <- p + 
+    labs(caption = caption) +
+    theme(plot.caption=element_text(size=8, hjust=0, margin=margin(t=15)))
+  }
+  return(print(p))
+}
+  
+if(PrintIDs){
+  IDs <- unlist(strsplit(myCohM$IDs, split=", ")) %>% unique() %>% length()
+  knitr::opts_chunk$set(fig.height = 6 + .007*(IDs))
+}
+```
+
+#### By Month
+
+`r NComments(myCohM)`
+
+```{r act needs by month}
+PlotCohort(d = myCohM, xvar = "nYrMo", xlabvar = "fYrMo", yvar = "mActNeeds",
+           xaxislab = "Month", xangle = 90,
+           mytitle = "Actionable Needs by Month")
+```
+
+#### By Quarter
+
+`r NComments(myCohQ)`
+
+```{r act needs by quarter}
+PlotCohort(d = myCohQ, xvar = "nYrQt", xlabvar = "fYrQt", yvar = "mActNeeds",
+           xaxislab = "Quarter", xangle = 90,
+           mytitle = "Actionable Needs by Quarter")
+```
+
+#### By Month, Contrasting Year
+
+`r NComments(myCohM)`
+
+```{r act needs by month and year}
+PlotCohort(d = myCohM, xvar = "startMonth", xlabvar = "startMonth", yvar = "mActNeeds",
+           xaxislab = "Month", mycolor = "fStartYear",
+           mytitle = "Actionable Needs by Month, Comparing Years")
+```
+
+#### By Quarter, Contrasting Year
+
+`r NComments(myCohQ)`
+
+```{r act needs by quarter and year}
+PlotCohort(d = myCohQ, xvar = "nStartQtr", xlabvar = "startQtr", yvar = "mActNeeds",
+           xaxislab = "Quarter", mycolor = "fStartYear",
+           mytitle = "Actionable Needs by Quarter, Comparing Years")
+```
+
+### Comparisons Across Assessments, by Cohort {.tabset}
+
+These graphs also report an average *number* of all actionable needs at entry--i.e. the number of items which are scored with either a '2' or '3' on the CANS--in the domains of Behavioral and Emotional Needs, Life Domain Functioning, and Risk Behaviors. These graphs contrast cohorts between initial and reassessments, where cohorts are grouped by those who were discharged or continuing in care at the given assessment and the year of the client's episode start date.
+
+```{r actionable needs across cohorts}
+comp_l <- 
+  gather(myComp, "var", "val", mActNeeds_init, mActNeeds_now) %>%
+  within(fStartYear <- factor(cohortYr, levels = sort(unique(comp$cohortYr)))) %>%
+  filter(cohortYr >= myStartYear) %>%
+  arrange(cohortYr, var, val)
+  
+maxVal <- max(comp_l$val, na.rm = TRUE)
+  
+plotCohortComp <- function(myPd, mySample, myCoh){
+  comp_l_pd <- 
+    comp_l %>%
+    filter(assessPd == myPd, sample == mySample, cohortYr==myCoh) %>%
+    arrange(var, val)
+  
+  if (pd == "Initial") comp_l_pd <- filter(comp_l_pd, grepl("init", var)) 
+  pdName <- gsub("mo$", " Months", myPd)
+ 
+  if ((comp_l_pd$n_init >= 10)|PrintIDs) {
+    if(!PrintIDs){    
+       comp_l_pd <-
+         comp_l_pd %>%
+         filter(n_init >= 10)
+    }
+    
+  myPlot <- 
+    ggplot(data = comp_l_pd, aes(x = "", y = val, fill = var)) + 
+      geom_bar(stat = "identity", position = "dodge", width = 0.5) +
+      labs(title = paste0("Number of Actionable Needs by Assessment Period"),
+           subtitle = paste(c("All"           = paste("All Clients With Assessment at", pdName),
+                              "dischargeonly" = paste("Clients Discharged After",       pdName),
+                              "continueonly" = paste("Clients Continuing After",        pdName))[mySample],
+                              "-- n = ", pn(max(comp_l_pd$n_now))),
+           x = "", y = "Avg Number of Actionable Needs") +
+      scale_y_continuous(limits = c(0, ceiling(max(comp_l_pd$val))*1.2)) +
+      scale_fill_manual(name = "", values = c("brown", "rosybrown3"), labels = c("Initial", pdName)) +
+      geom_text(aes(label = sprintf("%1.1f", round(comp_l_pd$val, 1))), vjust = -1, size = 5, position = position_dodge(width = 0.5)) +
+      theme(legend.position = "bottom",
+            legend.text   = element_text(size = axisTextSize),
+            axis.text     = element_text(size = axisTextSize),
+            axis.title    = element_text(size = axisTitleSize),
+            plot.title    = element_text(hjust = 0.5, size = plotTitleSize),
+            plot.subtitle = element_text(hjust = 0.5, size = plotSubtitleSize))
+  if (PrintIDs){
+    IDs <- unlist(strsplit(comp_l_pd$IDs, split=", ")) %>%
+      unique()
+    caption <- paste(c("Reassessment IDs Included:", IDs), collapse = ", ")
+    caption <- paste0(strwrap(caption, 134), sep="", collapse="\n")
+  myPlot <- myPlot + 
+    labs(caption = caption) +
+    theme(plot.caption=element_text(size=8, hjust=0, margin=margin(t=15)))
+  }
+  return(print(myPlot))
+  } else {
+   asis_output(cat("\n\n", "**A graph cannot be generated, because in the given cohort year and sample, fewer than 10 clients were assessed.**", "\n\n"))
+  }
+}
+```
+
+#### Across All Clients {.tabset}
+
+```{r act needs across assessment by cohort - full sample for pd, results = 'asis'}
+
+myCohs <- 
+  comp_l %>%
+  filter(sample == "All") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n#####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <- 
+    comp_l %>%
+    filter(sample == "All", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+
+  for (pd in myPds){
+    cat("\n######", pd, "\n")
+    plotCohortComp(myPd = pd, myCoh = coh, mySample = "All")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+
+```
+
+#### Discharged After Reassessment {.tabset}
+
+The figures below focus on only clients discharged from care as of the indicated reassessment.
+
+```{r act needs across assessment by cohort - only those discharged in pd, results = 'asis'}
+
+myCohs <- 
+  comp_l %>%
+  filter(sample == "dischargeonly") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n#####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <- 
+    comp_l %>%
+    filter(sample == "dischargeonly", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+
+  for (pd in myPds){
+    cat("\n######", pd, "\n")
+    plotCohortComp(myPd = pd, myCoh = coh, mySample = "dischargeonly")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+```
+
+#### Continuing After Reassessment {.tabset}
+
+The figures below focus on only clients continuing in care as of the indicated reassessment.
+
+```{r act needs across assessment by cohort - only those continuing in pd, results = 'asis'}
+
+myCohs <- 
+  comp_l %>%
+  filter(sample == "continueonly") %>%
+  with(unique(cohortYr))
+
+for(coh in myCohs){
+  cat("\n#####", coh, "Cohort", "{.tabset}", "\n")
+  myPds <- 
+    comp_l %>%
+    filter(sample == "continueonly", cohortYr == coh) %>%
+    with(levels(droplevels(assessPd)))
+
+  for (pd in myPds){
+    cat("\n######", pd, "\n")
+    plotCohortComp(myPd = pd, myCoh = coh, mySample = "continueonly")
+    cat("\n\n")
+  }
+  cat("\n\n")
+}
+```

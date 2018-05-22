@@ -1,0 +1,821 @@
+---
+title: "Documentation of Code for Processing CANS Data Use for Report Generation"
+author: "Nick Mader and Michaela Voit, Chapin Hall at the University of Chicago"
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    includes:
+      before_body: header.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, error = FALSE, message = FALSE)
+
+### Load (and, if necessary, install) packages --------------------------------#
+rm(list = ls())
+package.list <- c("knitr", "rmarkdown", "openxlsx", "dplyr", "data.table", "tidyr",
+                  "stringr", "lubridate", "bizdays",
+                  "ggplot2", "scales")
+for (p in package.list){
+  if (!p %in% installed.packages()[, "Package"]) install.packages(p)
+  library(p, character.only = TRUE)
+}
+
+grepv <- function(p, x, ...) grep(pattern = p, x = x, value = TRUE, ...)
+cn <- function(x) colnames(x)
+mean_notNA <- function(...) mean(na.rm = TRUE, ...)
+sum_notNA  <- function(...)  sum(na.rm = TRUE, ...)
+min_notNA  <- function(...)  min(na.rm = TRUE, ...)
+max_notNA  <- function(...)  max(na.rm = TRUE, ...)
+num_nonNA   <- function(x) sum(!is.na(x))
+
+### Set year ranges for assessments included ----------------------------------#
+
+startRange <- 2015:2017
+complCut <- as.Date("2017-12-31")
+
+# Cut off Continuing in Care at the end of the next-to-most-recent quarter
+continueLag <- as.Date("2017-10-1") # Write the date of the most recent quarter here to do this.
+
+```
+
+
+# Read and Shape Data
+
+## Import Data
+
+The full set of data is in the comma-separated values (csv) file loaded below.
+
+```{r read raw data}
+### /!\ Make sure that the name of your data file is here, that it is a .csv
+### (or otherwise you have updated the `read.csv()` function as appropriate),
+### and that the data is saved in a folder up one level from where *this* file
+### is saved, and in a subfolder called `data`.
+dt_raw <- read.csv("../data/Mock CANS Data - CORE 50.csv", stringsAsFactors = FALSE)
+```
+
+Read and clean codebook data on the CANS items.
+
+```{r read meta data}
+### /!\ Note that this code is highly specific to the form and values of our
+### codebook. The main task of this code is to create a data frame called `item_info`
+### for use below, which has fields of:
+###   * `item`   -- describing the field name
+###   * `label`  -- for descriptive labeling
+###   * `domain` -- to describe the domain, and
+###   * `dom`    -- short version of `domain`
+
+dt_meta <-
+  read.xlsx("../data/Mock CANS Data - CORE 50 - Codebook.xlsx", sheet = 1)
+item_info <-
+  dt_meta %>%
+  filter(grepl("3 =.+", RangeAndValues)) %>%
+    # Only keep rows that includes a "3 =". This is particular to our example codebook
+    # since there are other fields with a "0 =" code note, But only CANS items have a value of 3.
+  separate(LabelOrDescription, into = c("domain", "label"), sep = ": ") %>%
+  rename(item = TestDatasetFieldName,
+         values = RangeAndValues) %>%
+  mutate(label = gsub(" Item", "", label), # Remove the superfulous " Item" text in some of the values
+         dom = substr(item, 1, 3),
+         domain = str_trim(domain),
+         item   = str_trim(item)) # str_trim() ensures that there are no leading or trailing spaces
+
+# Take a look at the mapping of item domains.
+domMapping <-
+  item_info %>%
+  select(domain, dom) %>%
+  unique()
+rownames(domMapping) <- NULL
+domMapping
+```
+
+
+```{r Indicate groupings of domains}
+### /!\ Indicate groupings of domains
+dom_BehavRisk <- c("BEN", "RSK")
+dom_LifeFunc  <- "FUN"
+dom_str       <- "YST"
+dom_needs     <- c(dom_BehavRisk, dom_LifeFunc)
+
+GetDomain <- function(myDom) filter(domMapping, dom %in% myDom)$domain
+
+domain_needs     <- GetDomain(dom_needs)
+domain_str       <- GetDomain(dom_str)
+domain_BehavRisk <- GetDomain(dom_BehavRisk)
+domain_LifeFunc  <- GetDomain(dom_LifeFunc)
+```
+
+
+## Subset Data
+
+The code below identifies CANS assessment items by domains of interest, and a selection of other key fields that we will need for generating reporting  statistics. We also subset to assessment types for the "5+" population.
+
+```{r subset to fields of interest}
+
+### /!\ Enter here the prefixes that define your items of interest. If your CANS
+### fields don't have a consistent prefix, you can hand enter the names of the
+### relevant fields on the line that begins "items <- c("item_field_1", "item_field_2", ...)" etc
+cansDomains <- c("BEN", "FUN", "RSK", "YST")
+items <- grepv(paste0("^", paste(cansDomains, collapse = "|")), colnames(dt_raw))
+
+### /!\ Fields with categorical information that indicate levels for reporting
+reportFields <- c("County", "Agency")
+
+### /!\ Rename columns in the data to standard names used in the code below.
+### When adapting this code, you should update the names of the fields on the right-hand
+### side of each `<standard name> = <name in data>` renaming pair.
+dt <-
+  rename(dt_raw,
+         AssessmentID         = AssessmentID,
+         ClientID             = ConsumerID,
+         ClientDOB            = ConsumerBirthDate,
+         Agency_StartDate     = Agency.Start.Date,
+         Agency_EndDate       = Agency.End.Date,
+         Assessment_Type      = Assessment.Type, # Contains information about screener/full assessment
+         Assessment_Reason    = Assessment.Reason, # Contains information about initial/reassessment/discharge
+         Assessment_StartDate = Assessment.Start.Date,
+         Assessment_ComplDate = Assessment.Completed.Date,
+         Referral_Date        = Referral.Contact.Date)
+
+stdNonItemKeeps <-
+  c("AssessmentID", "ClientID", "ClientDOB", "Agency_StartDate", "Agency_EndDate",
+    "Assessment_Type", "Assessment_StartDate", "Assessment_ComplDate", "Assessment_complDate",
+    "Referral_Date")
+
+### /!\ This is the location where you should add fields that are of interest for
+### performing calculations or contextualizing your particular set of CANS data.
+addNonItemKeeps <- c(reportFields, "Referral_Date", "Assessment_Reason")
+
+nonItemKeeps <- c(stdNonItemKeeps, addNonItemKeeps)
+
+dtSub <-
+  filter(dt, grepl("5\\+", Assessment_Type)) %>%
+  select(one_of(c(nonItemKeeps, items)))
+```
+
+## Perform Miscellaneous Data Cleaning
+
+Simplify the values in the `County` and `Agency` fields to be just the name of the county or agency, without the extra " County" or " Agency" label.
+
+```{r distill county values}
+dtSub <-
+  dtSub %>%
+  mutate(County = gsub(" County$", "", County),
+         Agency = gsub(" Agency$", "", Agency))
+```
+
+
+## Identify Dates and Sequence of Assessments
+
+First, we identify the official episode start date, which is defined as either:
+
+1. the date of the most recent screener within an episode (among only the screeners that occur before a first full assessment); or
+2. if a screener completion date is not available, we use the earliest date of completion for a full assessment.
+
+Note that episodes are defined as all assessments for a given `ClientID` which have the same agency start date value.
+
+### Check on data irregularities
+
+Here, we check on any odd cases that we will need to handle in order for our manipulations.
+
+First, we check how many cases are missing agency start date.
+
+```{r check on missing start dates}
+summarise(dtSub, sum(Agency_StartDate==""))
+```
+
+For now, assessments missing an agency start date are left as is, in effect allowing them to operate as their own episode.
+
+To set the start date `day0`, from which we will start to count days in care for that client episode:
+
+* If the completion date of the first screener exists, that is set as `day0`
+* If the completion date of the first screen does not exist (is `NA`), then we set the start date of the first full assessment as `day0`
+
+```{r develop key dates and lags}
+# First, outside of the df,  define business days as weekdays, to count business days since referral
+cal <- Calendar(weekdays = c("saturday", "sunday")) # Business days here defined as WEEKDAYS, holidays not taken into account
+
+### /!\ Make sure to adapt the code below to the proper date format, starting
+### with the line for `agencyStartDate
+# For dates references, see: http://www.statmethods.net/input/dates.html
+myDateFmt <- "%Y-%m-%d" # Another common date format: "%m/%d/%Y"
+dtDates <-
+  dtSub %>%
+  mutate(agencyStartDate = as.Date(Agency_StartDate,     myDateFmt),
+         assessComplDate = as.Date(Assessment_ComplDate, myDateFmt),
+         assessStartDate = as.Date(Assessment_StartDate, myDateFmt),
+         refDate         = as.Date(Referral_Date,        myDateFmt),
+         birthDate       = as.Date(ClientDOB,            myDateFmt),
+         isScreen    = grepl("Screen", Assessment_Type),
+         isFull      = grepl("Full"  , Assessment_Type),
+         isDischarge = grepl("Discharge", Assessment_Reason)) %>%
+  group_by(ClientID, agencyStartDate) %>% # Group by client-episode, using agency start date temporarily
+  # Build the completion date of first full assessment -- this will become the startDate, i.e. entry date.
+  mutate(dateFirstFull = min_notNA(assessComplDate[isFull]),
+         bContinueCare = ifelse(max_notNA(isScreen), max_notNA(isFull), NA)) %>%
+  ungroup() %>%
+  mutate(startDate  = dateFirstFull,
+         startYear  = year(startDate),
+         startMonth = month(startDate),
+         startQtr = cut(startMonth,
+                        breaks = c(1, 4, 7, 10, 13),
+                        labels = c("Q1", "Q2", "Q3", "Q4"),
+                        right = FALSE),
+    assessAge = as.integer(floor((assessComplDate - birthDate)/365.25)),
+    assessComplYear = year(assessComplDate))
+
+dtDates_postNA <-
+  dtDates %>%
+  filter(!is.na(startDate),           # Only work with clients with an identified start date
+         !is.na(assessComplDate)) %>% # Only work with completed assessments
+  arrange(ClientID, startDate, assessComplDate) %>%
+  group_by(ClientID, startDate) %>% # START DATE == COMPL DATE OF FIRST FULL WITHIN EPISODE
+  # Identify the screeners that occur either first, or are a screen that comes after a previous screener
+  # Then, build dates since then.
+  mutate(isInitialScreen = is.na(lag(Assessment_Type)) |
+                             (grepl("Screen", lag(Assessment_Type)) &
+                              grepl("Screen", Assessment_Type)),
+         dateLastInitialScreen = max_notNA(assessComplDate[isInitialScreen]),
+         isLastInitialScreen   = isScreen & (assessComplDate == dateLastInitialScreen),
+         dateFirstFullStart    = min(assessStartDate[isFull]),
+         isFirstFull           = ((dateFirstFull == assessComplDate) & isFull),
+
+         # /!\ Review is needed here to confirm when exactly the assessment clock is set to begin
+         day0 = if_else(!is.na(dateLastInitialScreen), dateLastInitialScreen, dateFirstFullStart),
+         daysSince0 = ifelse(isFull, as.numeric(assessComplDate - day0), NA),
+           # Screenerss don't get daysSince0 for categorization purposes since
+           # we don't want to filter out pre-startDate screeners
+         # Also count business days since referral, creating a binary field = 1 if this number is > 10 business days to mark late screeners
+         daysSinceRef = ifelse(is.na(refDate) | is.na(assessComplDate), NA, bizdays(refDate, assessComplDate, cal)),
+         bScreenLate  = ifelse(isScreen, as.numeric(daysSinceRef > 10), NA),
+           # Remove full assessments from this binary
+
+         daysSinceScreen = ifelse(isFirstFull, as.numeric(assessComplDate - dateLastInitialScreen), NA),
+           # Also count days between the last screener and first full assessment and create binary variables to mark late assessments
+         bFullLateLessThan30 = as.numeric(ifelse(daysSinceScreen  > 30 & daysSinceScreen <= 60, 1, 0)),
+         bFullLate60Plus     = as.numeric(ifelse(daysSinceScreen  > 60, 1, 0)),
+         bFullOnTime         = as.numeric(ifelse(daysSinceScreen <= 30, 1, 0))) %>%
+  filter((startYear %in% startRange) & (assessComplDate <= complCut))
+```
+
+```{r inspect assignment of month and quarter}
+dtDates_postNA %>%
+  ungroup() %>%
+  select(startMonth, startQtr) %>%
+  arrange(startMonth) %>%
+  unique()
+```
+
+
+```{r inspect data constructions}
+# Examine several cases to confirm that the assignment worked properly
+if (FALSE){
+  select(dtDates_postNA, ClientID, startDate, assessComplDate, Assessment_Type, dateLastInitialScreen, isLastInitialScreen, daysSinceScreen, bFullOnTime, bFullLate60Plus, bFullLateLessThan30) %>%
+  head(30)
+}
+```
+
+Note that the above logic for determining which screeners are among the initial ones will not work if there are multiple screeners that are assessed back-to-back later in an episode. Below, we check if there are any cases where full assessments are listed as having negative "days since day 0". We find that `r sprintf("%1.1f%%", 100*(filter(dtDates_postNA, isFull) %>% ungroup() %>% summarise(mean(daysSince0 < 0))))` of full assessments are calculated to occur before day 0.
+
+```{r examine days since day 0}
+# Look at the range of values of "daysSince0"
+filter(dtDates_postNA, isFull) %>% ungroup() %>% select(daysSince0) %>% summary()
+# Examine cases where there are negative days since day 0
+if (FALSE){
+  select(dtDates_postNA, ClientID, startDate, assessComplDate, Assessment_Type, dateLastInitialScreen, day0, daysSince0, isFull) %>%
+    group_by(ClientID, startDate) %>%
+    filter(min(daysSince0[isFull]) < 0) %>%
+    head(20)
+}
+# Look at the range of values of "daysSinceRef" for screeners
+filter(dtDates_postNA, isScreen) %>% ungroup() %>% select(daysSinceRef) %>% summary()
+```
+
+We see that there are indeed some of these cases where days since day 0 is negative. Pending further investigation of what may explain these cases, we discard them.
+
+```{r filter out assessments made before day 0}
+dtDates_post0 <- filter(dtDates_postNA, daysSince0 >= 0 | is.na(daysSince0))
+```
+
+Next, we categorize each assessment period by the number of days that it occurred after the official start date.
+
+```{r categorize assessments by period}
+dtDates_cat <-
+  group_by(dtDates_post0, Assessment_Type) %>%
+  mutate(assessPd = cut(as.integer(daysSince0),
+                        breaks = c(0, 76, 166, 256, 346, 436, 526, 616, 706, 779, 886, 976, 1066, 1165, max_notNA(daysSince0)+1),
+                          # See the "Constructing Episodes for WISe Cases.docx" document that confirms these timelines
+                        labels = c("Initial", paste0(seq(3, 36, by = 3), "mo"), ">36mo"),
+                        right = FALSE)) %>%
+    # Only allow full assessments to be associated with an assessment period.
+    # Do this by setting the assessment period value for screeners to be missing.
+  within(assessPd[isScreen] <- NA)
+
+# Examine the frequency of assessment period values and check that the assignment
+# by assessment type worked properly
+with(dtDates_cat, table(assessPd, Assessment_Type, useNA = "always"))
+```
+
+Check that the categorization of days since day 0 worked.
+
+```{r check on categorization of assessment periods by days since 0}
+dtDates_cat %>%
+  group_by(assessPd) %>%
+  summarise(min = min_notNA(daysSince0),
+            max = max_notNA(daysSince0),
+            n = n()) %>%
+  arrange(min)
+```
+
+Generate a field to indicate the final assessment of clients before their discharge.
+
+```{r assesspd before discharge}
+dtLastAssess <-
+  dtDates_cat %>%
+  group_by(ClientID, startDate) %>%
+  filter(!isScreen) %>%
+  arrange(daysSince0) %>%
+  mutate(assessPd_last = assessPd[n()]) %>%
+  select(ClientID, startDate, assessPd_last) %>%
+  unique()
+
+dtDates_cat <-
+  merge(dtDates_cat, y = dtLastAssess, by = c("ClientID", "startDate"), all.x = TRUE)
+
+# Check that this worked
+dtDates_cat %>%
+  filter(assessPd_last == "12mo") %>%
+  arrange(ClientID, startDate, assessComplDate, daysSince0) %>%
+  select(ClientID, startDate, Assessment_Type, assessComplDate, daysSince0, assessPd, assessPd_last) %>%
+  head(20)
+```
+
+Finally, we will keep information about only the last initial screener, or the last full assessment within each assessment period. Because some cases have multiple assessments on the same day, we also "break this tie" by selecting the assessment with the highest value of `AssessmentID` on that day. This assumption should be reviewed to ensure the consistency of its logic with clinical practice.
+
+```{r keep only last screener and latest full in period}
+dtDates_sub <-
+  dtDates_cat %>%
+  group_by(ClientID, startDate, assessPd) %>%
+  filter(isLastInitialScreen |
+           (isFull &
+              assessComplDate == max(assessComplDate) &
+              AssessmentID    == max(AssessmentID)))
+
+# Inspect cases both before and after this operations to confirm success
+if (FALSE){
+  # Note: client 47169 is one with duplicates, to look for successful handling
+  select(dtDates_cat, ClientID, assessComplDate, startDate, daysSince0, assessPd, Assessment_Type) %>%
+    head(40)
+  select(dtDates_sub, ClientID, assessComplDate, startDate, daysSince0, assessPd, Assessment_Type) %>%
+    head(40)
+}
+```
+
+This last operation brought our data set from `r prettyNum(nrow(dtDates_cat), big.mark = ",")` to `r prettyNum(nrow(dtDates_sub), big.mark = ",")` assessments.
+
+## Convert Data to Item-Level Format
+
+The following steps reshape the data to a "long" format", so that each row represents each item response, along with the assessment number, episode, client, and time period in which that response was made. This is a particularly helpful format because these responses are the fundamental unit of analysis.
+
+The next step also recodes invalid values of 9 (since CANS responses always range from 0 to 3), and sorts the data by client, episode start, and date of completion of the assessment.
+
+```{r convert data to long format}
+updNonItemKeeps <-
+  c("ClientID", "AssessmentID",
+    "startDate", "startYear", "startMonth", "startQtr", "assessComplDate", "refDate",
+    "assessPd", "assessAge", "assessPd_last", "Agency", "County",
+    "isScreen", "isFull", "isDischarge")
+newKeeps <- c(items, updNonItemKeeps)
+
+dtLong <-
+  select(dtDates_sub, one_of(newKeeps)) %>%
+  gather("var", "val", one_of(items)) %>%
+  within({
+    val[val == 9] <- NA # /!\ Some error values may need to be recoded depending on the data capture system
+  }) %>%
+  arrange(ClientID, startDate, assessComplDate)
+
+# Check that CANS item values range only from 0 to 3
+table(dtLong$val)
+```
+
+## Add Information On Assessments
+
+Now that the data set's records are down to the item level, we can merge in additional information about each item--including domain, and other descriptors--that can be used in our calculations below. Note that regular expressions are once again used to flexibly pull information out of longer strings in several of the fields from the "item_info.csv" file.
+
+```{r add information about each item}
+dtLong <- mutate(dtLong, item = as.character(var))
+dtItems <- merge(x = dtLong,
+                 y = select(item_info, dom, domain, item, label),
+                 by = "item",
+                 all.x = TRUE)
+```
+
+Check on information on items. First check on the values of item labels.
+
+```{r check value information}
+table(dtItems$item, useNA = "always")
+```
+
+Next, check on the label information for any items that have missing (i.e. NA-valued) information.
+
+```{r identify which item fields are missing information}
+dtItems %>%
+  filter(is.na(label)) %>%
+  with(table(item))
+```
+
+
+## Clean Values For Reporting Units
+
+First, generate new fields that summarize whether the CANS item score meets a certain threshold of need. Note that "Ge" is short for "greater than or equal to", and "Lt" is short for "less than"."
+
+```{r generate fields representing value cutoffs}
+dtItems <-
+  mutate(dtItems,
+    valGe1 = 1*(val >= 1),
+    valGe2 = 1*(val >= 2),
+    valGe3 = 1*(val >= 3),
+    valLt2 = 1*(val <  2))
+```
+
+
+# Generate Statistics Used in the Reports
+
+## Prepare Data for Calculations
+
+Because several calculations in the reports compare contemporaneous assessment scores with those from the client's initial period in the same episode, we merge those initial scores to be side to side with the contemporaneous ones. We also include other contextual information such as what the agency, county, and completion date were for the initial assessment.
+
+```{r prepared data for report calculations}
+
+keepIds <- c("ClientID", "startDate", "var", "domain", "dom", "item", "startYear")
+keepInit <- c(reportFields, "assessComplDate",
+              "val", "valLt2", "valGe3", "valGe2", "valGe1")
+
+dtInit <-
+  dtItems %>%
+  filter(assessPd == "Initial") %>%
+  select(one_of(c(keepIds, keepInit))) %>%
+  setnames(old = keepInit, new = paste0(keepInit, "_Initial"))
+
+### Merge
+
+dups <-
+  dtItems %>%
+  select(c(keepIds, "assessPd")) %>%
+  duplicated()
+sum(dups)
+
+dtItemPairs <-
+  merge(x = dtItems,
+        y = dtInit,
+        by = keepIds,
+        all.x = TRUE) %>%
+  filter(isFull) %>%
+  mutate(val         = as.numeric(val),
+         val_Initial = as.numeric(val_Initial))
+pds <- levels(dtItemPairs$assessPd)
+
+# Make a PDSA Str Version with just discharge
+
+dtItemPairs_discharge <-
+  dtItemPairs %>%
+  filter(isDischarge) %>%
+  within({
+  dischargeYear  <- year(assessComplDate)
+  dischargeMonth <- month(assessComplDate)
+  dischargeQtr <- cut(dischargeMonth,
+                  breaks = c(1, 4, 7, 10, 13),
+                  labels = c("Q1", "Q2", "Q3", "Q4"),
+                  right = FALSE)
+})
+```
+
+Examining the correlation between contemporaneous and initial scores, by assessment period, for reality check of values. We would expect correlations to be modest, and decreasing for more distant reassessments, which we do indeed see.
+
+```{r correlate contemporaneous and initial}
+# Make sure val and val_Initial are in numeric form
+
+dtItemPairs %>%
+  group_by(assessPd) %>%
+  summarise(rho = cor(val, val_Initial, use = "pairwise"),
+            n = length(unique(ClientID))) %>%
+  arrange(assessPd)
+
+```
+
+Investigate how many clients switch region, county, agency between initial and follow-up assessment within episode. Note that we first filter down to a single item to focus on, since our dataset which enables longitudinal comparisons is at the item (and not episode) level.
+
+```{r examine changes in care circumstances between initial and contemporaneous assessment}
+### /!\ This check would need to be adjusted based on the
+dtItemPairs %>%
+  filter(var == var[1]) %>%
+  group_by(assessPd) %>%
+  summarise(changeCounty = mean_notNA(County != County_Initial),
+            changeAgency = mean_notNA(Agency != Agency_Initial),
+            nChangeCounty = sum_notNA(County != County_Initial),
+            nChangeAgency = sum_notNA(Agency != Agency_Initial),
+            n = n()) %>%
+  arrange(assessPd)
+```
+
+## Perform the Calculations
+
+```{r calculate statistics used in the reports}
+
+### Initialize objects where we will store calculations of each type
+rptList <-
+  c("trtNeedsRpt", "usefulStrRpt", "actNeedsRpt",
+    "cohortMoRpt", "cohortQtrRpt", "compRpt", "entityNs", "fullTimeRpt",
+    "screenTimeRpt", "continueRpt", "pdsaStrRpt", "dateRangeRpt")
+for (df in rptList){
+  assign(df, NULL)
+}
+
+dtDates_rpt    <- dtDates_sub
+dtDatesCon_rpt <- dtDates
+
+### Name the data sets used for calculations
+calcDatasets <- c("dtItemPairs", "dtItemPairs_discharge", "dtDates_rpt", "dtDatesCon_rpt")
+
+for (rl in c("Systemwide", reportFields)){
+
+  print(paste("Working on rptLvl", rl))
+
+  ### Set up standardized column with values set for the current reporting level
+  for (df in calcDatasets){
+    upd <- within(get(df), {
+      Systemwide <- "Entire System"
+      rptLvl <- rl
+      rptLvlVal <- get(rl)
+    })
+    assign(df, upd)
+  }
+
+  ### Count number of unique individuals per entity ---------------------------#
+
+  entNs <-
+    dtItemPairs %>%
+    group_by(rptLvl, rptLvlVal) %>%
+    summarise(n = length(unique(ClientID)),
+              IDs = paste(AssessmentID, collapse = ", "))
+  entityNs <- rbind(entityNs, entNs)
+
+
+  ### Treatment Needs ---------------------------------------------------------#
+
+  # Focus on items in only behavioral, life, or risk domains, which are also
+  # flagged as "Use". Then get sum/pct for non-NA values by item. Note that the
+  # "n" and "r" prefixes respectively indicate a "count/'n'umber" and "'r'ate/
+  # percent" value.
+
+  dfTrt <-
+    dtItemPairs %>%
+    filter(isFull, domain %in% domain_needs, !is.na(valGe2), !is.na(valLt2_Initial))
+  cohortYrs <- 2015:max_notNA(dfTrt$startYear)
+  trtNeeds <- NULL
+  for (cohortYr in c("All", cohortYrs)){
+    for (cond in c("All", "dischargeonly", "continueonly")){
+      trtNeeds_pd <-
+        dfTrt %>%
+        filter(if (cond == "dischargeonly")  isDischarge else TRUE,
+               if (cond == "continueonly")  !isDischarge else TRUE,
+               if (cohortYr == "All") startYear %in% cohortYrs else startYear == cohortYr) %>%
+        group_by(rptLvl, rptLvlVal, assessPd, domain, item) %>%
+        summarise(nNeeds_init = sum_notNA(valGe2_Initial),
+                  nNeeds_now  = sum_notNA(valGe2),
+                  rNeeds_init = nNeeds_init/num_nonNA(valGe2_Initial),
+                  rNeeds_now  = nNeeds_now /num_nonNA(valGe2),
+                  n = num_nonNA(valGe2),
+                  IDs = paste(AssessmentID, collapse = ", "))
+      if (nrow(trtNeeds_pd) != 0) {
+        trtNeeds_pd$sample   <- cond
+        trtNeeds_pd$cohortYr <- cohortYr
+        trtNeeds <- rbind(trtNeeds, trtNeeds_pd)
+      }
+    } # End of loop across all vs discharge-only vs reassess-only samples
+  } # End of loop across cohort years
+
+  # Subset to get the top 6 needs from behavioral and emotional, and top 4 from life domain
+
+  trtNeeds_sort <-
+    trtNeeds %>%
+    filter(n != 1 & rNeeds_init != 1) %>% # Filter out high percentages due to low n (e.g. 100% because the n for that cohort is 1)
+    group_by(rptLvlVal, sample, cohortYr, assessPd) %>%
+    arrange( rptLvlVal, sample, cohortYr, assessPd, -rNeeds_init)
+  trtNeeds_BHRFsub <-
+    trtNeeds_sort %>%
+    filter(domain %in% domain_BehavRisk) %>%
+    top_n(6, rNeeds_init)
+  trtNeeds_LDsub <-
+    trtNeeds_sort %>%
+    filter(domain %in% domain_LifeFunc) %>%
+    top_n(4, rNeeds_init)
+
+  trtNeedsRpt <- rbind(trtNeedsRpt, trtNeeds_BHRFsub, trtNeeds_LDsub)
+
+  ### PDSA Strengths ----------------------------------------------------------#
+
+  dfPDSA <-
+    dtItemPairs_discharge %>%
+    filter(isFull, domain %in% domain_str, !is.na(valLt2),  !is.na(valLt2_Initial))
+  dischargeYrs <- 2015:max_notNA(dfPDSA$dischargeYear)
+  dischargeQs <- as.character(unique(dfPDSA$dischargeQtr))
+  pdsaStr <- NULL
+  for (dischargeYr in c("All Years", dischargeYrs)){
+    for (dischargeQ in c("All Quarters", dischargeQs)){
+    pdsaStr <-
+      dfPDSA %>%
+      filter(if (dischargeYr == "All Years")    dischargeYear %in% dischargeYrs else dischargeYear == dischargeYr,
+             if (dischargeQ  == "All Quarters") dischargeQtr  %in% dischargeQs  else dischargeQtr  == dischargeQ) %>%
+      group_by(rptLvl, rptLvlVal, domain, item) %>%
+      summarise(nStr_init = sum_notNA(valLt2_Initial),
+                nStr_now  = sum_notNA(valLt2),
+                rStr_init = nStr_init/num_nonNA(valLt2_Initial),
+                rStr_now  = nStr_now /num_nonNA(valLt2),
+                n = num_nonNA(valLt2),
+                IDs = paste(AssessmentID, collapse = ", ")) %>%
+      filter(n != 0) %>%
+      arrange(rptLvlVal, domain, -rStr_init)
+      if (nrow(pdsaStr) != 0) {
+        pdsaStr$dischargeYr <- dischargeYr
+        pdsaStr$dischargeQtr <- dischargeQ
+        pdsaStrRpt <- rbind(pdsaStrRpt, pdsaStr)
+      }
+    } # End of Loop across discharge quarters
+  } # End of loop across discharge years
+
+  ### Useful Strengths --------------------------------------------------------#
+
+  # Get numbers and rates/pcts across all strengths where the score is "l"ess "t"han 2
+  dfUse <-
+    dtItemPairs %>%
+    filter(isFull, domain %in% domain_str, !is.na(valLt2), !is.na(valLt2_Initial))
+  usefulStr <- NULL
+  for (cohortYr in c("All", cohortYrs)){
+    for (cond in c("All", "dischargeonly", "continueonly")){
+      usefulStr <-
+        dfUse %>%
+        filter(if (cond == "dischargeonly")  isDischarge else TRUE,
+               if (cond == "continueonly")  !isDischarge else TRUE,
+               if (cohortYr == "All") startYear %in% cohortYrs else startYear == cohortYr) %>%
+        group_by(rptLvl, rptLvlVal, assessPd, domain, item) %>%
+        summarise(nStr_init = sum_notNA(valLt2_Initial),
+                  nStr_now  = sum_notNA(valLt2),
+                  rStr_init = nStr_init/num_nonNA(valLt2_Initial),
+                  rStr_now  = nStr_now /num_nonNA(valLt2),
+                  n = num_nonNA(valLt2),
+                  IDs = paste(AssessmentID, collapse = ", ")) %>%
+        filter(n != 0) %>%
+        arrange(rptLvlVal, assessPd, domain, -rStr_init)
+      if (nrow(usefulStr) != 0) {
+        usefulStr$sample   <- cond
+        usefulStr$cohortYr <- cohortYr
+        usefulStrRpt <- rbind(usefulStrRpt, usefulStr)
+      }
+    } # End of loop across all vs discharge-only vs reassess-only samples
+  } # End of loop across cohort years
+
+  ### Intensity of Actionable Needs --------------------------------------------------------#
+
+  dfAct <-
+    dtItemPairs %>%
+    filter(isFull, domain %in% c(domain_needs, domain_str), !is.na(valGe2), !is.na(valGe2_Initial))
+    #   Subset to only valid responses in the domains of behavioral health/
+    #   emotional needs, risk factors, youth strengths, and impact of life domain functioning
+  for (cohortYr in c("All", cohortYrs)){
+    for (cond in c("All", "dischargeonly", "continueonly")){
+      actNeeds_c <-
+        dfAct %>%
+        filter(if (cond == "dischargeonly")  isDischarge else TRUE,
+               if (cond == "continueonly")  !isDischarge else TRUE,
+               if (cohortYr == "All") startYear %in% cohortYrs else startYear == cohortYr) %>%
+        group_by(rptLvl, rptLvlVal, assessPd, ClientID, startDate) %>%
+        mutate(actVal_now  = ifelse(valGe2         == 1, val,         0),
+               actVal_init = ifelse(valGe2_Initial == 1, val_Initial, 0)) %>%
+        summarise(sumActNeeds_now   = sum_notNA(actVal_now ),
+                  sumActNeeds_init  = sum_notNA(actVal_init),
+                  IDs = paste(AssessmentID, collapse = ", "))
+      actNeeds <-
+        actNeeds_c %>%
+        group_by(rptLvl, rptLvlVal, assessPd) %>%
+        summarise(n = num_nonNA(sumActNeeds_init),
+                  avgActNeeds_c_now  = mean_notNA(sumActNeeds_now ),
+                  avgActNeeds_c_init = mean_notNA(sumActNeeds_init),
+                  IDs = paste(IDs, collapse = ", "))
+      if (nrow(actNeeds) != 0){
+        actNeeds$sample <- cond
+        actNeeds$cohortYr <- cohortYr
+        actNeedsRpt <- rbind(actNeedsRpt, actNeeds)
+      }
+    } # End of loop across all vs discharge-only vs reassess-only samples
+  } # End of loop across cohort years
+
+  ### Cohort calculations -----------------------------------------------------#
+
+  ### Trends in number of initial needs by month and quarter
+  dfCo <- dfAct %>%
+    filter(assessPd == "Initial", domain %in% domain_needs) %>%
+    group_by(rptLvl, rptLvlVal, ClientID, startYear, startQtr, startMonth) %>%
+    summarise(nActNeeds = sum_notNA(valGe2),
+              IDs = paste(AssessmentID, collapse = ", "))
+  cohort_mo <-
+    dfCo %>%
+    group_by(rptLvl, rptLvlVal, startYear, startMonth) %>%
+    summarise(mActNeeds = mean_notNA(nActNeeds),
+              n = num_nonNA(nActNeeds),
+              IDs = paste(IDs, collapse = ", "))
+  cohort_qt <-
+    dfCo %>%
+    group_by(rptLvl, rptLvlVal, startYear, startQtr) %>%
+    summarise(mActNeeds = mean_notNA(nActNeeds),
+                      n = num_nonNA(nActNeeds),
+              IDs = paste(IDs, collapse = ", "))
+
+  cohortMoRpt  <- rbind(cohortMoRpt,  cohort_mo)
+  cohortQtrRpt <- rbind(cohortQtrRpt, cohort_qt)
+
+  ### Compare changes in count of actionable needs
+
+  for (cohortYr in c("All", cohortYrs)){
+    for (cond in c("All", "dischargeonly", "continueonly")){
+      comp_c <-
+        dfAct %>%
+        filter(domain %in% domain_needs) %>% # filter to just needs, remove strengths
+        filter(if (cond == "dischargeonly")  isDischarge else TRUE,
+               if (cond == "continueonly")  !isDischarge else TRUE,
+               if (cohortYr == "All") startYear %in% cohortYrs else startYear == cohortYr)%>%
+        group_by(rptLvl, rptLvlVal, assessPd, ClientID, startDate) %>%
+        summarise(nActNeeds_now  = sum_notNA(valGe2),
+                  nActNeeds_init = sum_notNA(valGe2_Initial),
+                  IDs = paste(AssessmentID, collapse = ", "))
+
+      comp <-
+        comp_c %>%
+        group_by(rptLvl, rptLvlVal, assessPd) %>%
+        summarise(mActNeeds_now  = mean_notNA(nActNeeds_now ),
+                  mActNeeds_init = mean_notNA(nActNeeds_init),
+                  n_now  = num_nonNA(nActNeeds_now),
+                  n_init = num_nonNA(nActNeeds_init),
+                  IDs = paste(IDs, collapse = ", "))
+
+      if (nrow(comp) != 0){
+        comp$sample <- cond
+        comp$cohortYr <- cohortYr
+        compRpt <- rbind(compRpt, comp)
+      }
+    }
+  }
+
+  ### Timeliness calculations -----------------------------------------------------#
+
+  screenTimeRpt_rptLvlQtrYr <-
+    dtDates_rpt %>%
+    group_by(rptLvl, rptLvlVal, startYear, startQtr) %>%
+    filter(isScreen) %>%
+    summarise(nLate   = sum_notNA(  bScreenLate),
+              nOnTime = sum_notNA(1-bScreenLate),
+              pctLate = mean_notNA(bScreenLate),
+              pctOnTime = 1 - pctLate,
+              IDs = paste(AssessmentID, collapse = ", "),
+              n = n())
+
+  screenTimeRpt <- rbind(screenTimeRpt, screenTimeRpt_rptLvlQtrYr)
+
+  fullTimeRpt_rptLvlQtrYr <-
+    dtDates_rpt %>%
+    group_by(rptLvl, rptLvlVal, startYear, startQtr) %>%
+    filter(isFirstFull) %>%
+    summarise(  nlt30Late =  sum_notNA(bFullLateLessThan30),
+              pctlt30Late = mean_notNA(bFullLateLessThan30),
+                ngt30Late =  sum_notNA(bFullLate60Plus),
+              pctgt30Late = mean_notNA(bFullLate60Plus),
+                nOnTime =    sum_notNA(bFullOnTime),
+              pctOnTime =   mean_notNA(bFullOnTime),
+                    IDs = paste(AssessmentID, collapse = ", "),
+                      n = n())
+  fullTimeRpt <- rbind(fullTimeRpt, fullTimeRpt_rptLvlQtrYr)
+
+  ### Dates Range Reports ----------------------------------------------------#
+
+  dateRangeRpt_rptLvl <-
+  dtDates_rpt %>%
+    filter(isFull) %>%
+    group_by(rptLvl, rptLvlVal) %>%
+    summarise(dateRange = paste0(min_notNA(assessComplDate), " and ", max_notNA(assessComplDate)),
+              datePull  = paste0(max_notNA(assessComplDate)))
+  dateRangeRpt <- rbind(dateRangeRpt, dateRangeRpt_rptLvl)
+}
+
+save(trtNeedsRpt, usefulStrRpt, actNeedsRpt, cohortMoRpt, cohortQtrRpt, compRpt, entityNs, fullTimeRpt, screenTimeRpt, pdsaStrRpt, dateRangeRpt, reportFields,
+     file = "../data/System Report Calc Values.Rda")
+```
+
+``` {r save research and reference data}
+save(dtItems, dtLong, dtItemPairs,
+     file = "../data/CANS_Items.Rda")
+```
+
