@@ -9,7 +9,7 @@
 ### Set up workspace and load data----------------------------------------------
 #------------------------------------------------------------------------------#
 
-try(setwd("G:/GitLab/standard-reports"))
+try(setwd("G:/GitHub/tcom-chic/standard-reports"))
 rm(list = ls())
 
 package.list <- c("dplyr", "tidyr", "data.table", "stringr", "lubridate")
@@ -70,6 +70,7 @@ system.time({
     fTime    <- filter(fullTimeRpt,   rptLvl == rl)
     sTime    <- filter(screenTimeRpt, rptLvl == rl)
     date     <- filter(dateRangeRpt,  rptLvl == rl)
+    itemBrk  <- filter(itemBreakRpt,  rptLvl == rl)
     
     rus <- unique(act$rptLvlVal)
     
@@ -84,15 +85,16 @@ system.time({
         select(n)
       
       if (entityN >= 10) {
-        myAct    <- filter(act,   rptLvlVal == ru)
-        myTrt    <- filter(trt,   rptLvlVal == ru)
-        myUse    <- filter(use,   rptLvlVal == ru)
-        myCohM   <- filter(cohMo, rptLvlVal == ru)
-        myCohQ   <- filter(cohQt, rptLvlVal == ru)
-        myComp   <- filter(comp,  rptLvlVal == ru)
-        myFTime  <- filter(fTime, rptLvlVal == ru)
-        MySTime  <- filter(sTime, rptLvlVal == ru)
-        myDate   <- filter(date,  rptLvlVal == ru)
+        myAct    <- filter(act,     rptLvlVal == ru)
+        myTrt    <- filter(trt,     rptLvlVal == ru)
+        myUse    <- filter(use,     rptLvlVal == ru)
+        myCohM   <- filter(cohMo,   rptLvlVal == ru)
+        myCohQ   <- filter(cohQt,   rptLvlVal == ru)
+        myComp   <- filter(comp,    rptLvlVal == ru)
+        myFTime  <- filter(fTime,   rptLvlVal == ru)
+        MySTime  <- filter(sTime,   rptLvlVal == ru)
+        myDate   <- filter(date,    rptLvlVal == ru)
+        myBrk    <- filter(itemBrk, rptLvlVal == ru)
         
         # Generate date range documentation
         dateRange <- paste0(myDate[1,]$dateRange)

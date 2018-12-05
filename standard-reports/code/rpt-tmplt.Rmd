@@ -7,12 +7,15 @@ output:
     toc_depth: 3
     toc_float: true
 ---
+<style type="text/css">
+    div.datatables { height: auto !important;}
+</style>
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, error = FALSE,
                       fig.height = 6, fig.width = 8)
 
-package.list <- c("knitr", "dplyr", "tidyr", "ggplot2", "scales", "ggThemeAssist", "stringr", "lubridate")
+package.list <- c("knitr", "dplyr", "tidyr", "ggplot2", "scales", "ggThemeAssist", "stringr", "lubridate", "htmltools", "DT")
 for (p in package.list){
   if (!p %in% installed.packages()[, "Package"]) install.packages(p)
   library(p, character.only = TRUE)
@@ -886,3 +889,118 @@ for(coh in myCohs){
   cat("\n\n")
 }
 ```
+
+## Item-Level Breakout Report {.tabset}
+
+For each item in the domains of Behavioral and Emotional Needs, Life Domain Functioning, and Risk Behaviors, the following tables show:
+
+* Initial: The percentage of clients in the cohort that have the item identified as an actionable need (rated a '2' or a '3') at the initial assessment.
+* Continuing: The percentage of clients with an actionable need rating at initial that continue to have the initial item indicated as an actionable need (rated a '2' or a '3') at reassessment.  
+* Clinical Progress: The percentage of clients with at actionable need rating at initial, where the initial item actionable need (rated '2' or '3') that decreased by at least 1-point from initial to reassessment.
+* Newly Identified: The percentage of clients without the item rated as actionable (rated a '2' or a '3') at initial, but that have the item identified as an actionable need (rated a '2' or '3') at reasessment.
+* Worsening: The percentage of clients that had the need rated as a '2' at initial that had a 1-point increase in the item's actionable need rating from initial to reassessment.  Specifically, time-point 1 ratings of a '2' that increased to a rating of a '3' at time-point 2. 
+* Transitioning: The percentage of clients who were discharged in this assessment period with an actionable rating of '2' or '3' on the given item at their final reassessment.
+
+These graphs contrast cohorts between initial and reassessments, where cohorts are grouped by those who were discharged or continuing in care at the given assessment and the year of the client's episode start date.
+
+**Note** that there may be fewer assessment periods represented in this series of graphs than just above. This is a consequence of the fact that this report does not display any information calculated off of groups of clients smaller than 10. While there are clients being served at these later periods, those reports are suppressed.
+
+```{r item breakout reassessment comparison data prep}
+
+colsCalc <- grepv("^rBrk", cn(myBrk))
+
+myBrkSub <-
+  myBrk %>%
+  filter(!is.na(assessPd), 
+         assessPd != "Initial") %>% # Filter out initial assessments, they're not necessary!
+  ungroup() %>%
+  within({
+    pn <- pn(n)
+    rBrk_ident <- ifelse(rBrk_init == 1,                 0, rBrk_ident)
+    rBrk_cont  <- ifelse(rBrk_init == 0,                 0,  rBrk_cont)
+    rBrk_prog  <- ifelse(rBrk_init == 0,                 0,  rBrk_prog)
+    rBrk_worse <- ifelse(is.finite(rBrk_worse), rBrk_worse,          0)
+    rBrk_trans <- ifelse(is.finite(rBrk_trans), rBrk_trans,          0)
+         }) %>%
+  arrange(assessPd)
+
+```
+
+```{r item breakout graphing function}
+  
+plotBrkNeeds <- function(x){
+  myPd <- unique(x[,3]) 
+  myBrkSub_pd <-
+    x %>%
+    select(domain, item, one_of(colsCalc), n, assessPd)
+  
+  pdName <- NULL
+  maxN <- max(x[,"n"], na.rm = T)
+  
+  if (maxN >= 10|PrintIDs) { 
+    
+      pdName <- gsub("mo$", " Months", myPd)
+      
+      myTableBrk <-
+        x %>% 
+        mutate_at(vars(contains("rBrk")), funs(lab = scales::percent)) %>%
+        select(domain, item, contains("rBrk")) %>%
+        rename("Domain" = domain,
+               "Item" = item,
+               "Initial" = rBrk_init_lab,
+               "Continuing" = rBrk_cont_lab,
+               "Clinical Progress" = rBrk_prog_lab,
+               "Newly Identified" = rBrk_ident_lab,
+               "Worsening" = rBrk_worse_lab,
+               "Transitioning" = rBrk_trans_lab)
+
+        myTableBrk %>%
+        datatable(rownames = F, 
+                  # autoHideNavigation = T, 
+                  class = 'cell-border stripe',
+            options = list(paging=FALSE,
+                           autoWidth = TRUE,
+                           # fillContainer = FALSE,
+                           # searching=FALSE,
+                           info = FALSE,
+                           # ordering = FALSE,
+                           initComplete = JS(
+                             "function(settings, json) {",
+                             "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+                             "}"),
+              columnDefs = list(list(targets = c(2,3,4,5,6,7), visible = F),
+                                list(width = '13%', targets = list(8,9,10,11,12,13)))),
+              caption = paste("All Clients With Assessment at", pdName,
+                              "-- n = ", pn(max(myBrkSub_pd$n)))) %>%
+        formatStyle('Initial', 'rBrk_init', background = styleColorBar(c(0,1), 'violet'), backgroundSize = '98% 88%', 
+              backgroundRepeat = 'no-repeat', backgroundPosition = 'center') %>%
+        formatStyle('Continuing', 'rBrk_cont', background = styleColorBar(c(0,1), 'cyan'), backgroundSize = '98% 88%', 
+              backgroundRepeat = 'no-repeat', backgroundPosition = 'center')  %>%
+        formatStyle('Clinical Progress', 'rBrk_prog', background = styleColorBar(c(0,1), 'palegreen'), backgroundSize = '98% 88%',
+              backgroundRepeat = 'no-repeat', backgroundPosition = 'center')  %>%
+        formatStyle('Newly Identified', 'rBrk_ident', background = styleColorBar(c(0,1), 'yellow'), backgroundSize = '98% 88%', 
+              backgroundRepeat = 'no-repeat', backgroundPosition = 'center') %>%
+        formatStyle('Worsening', 'rBrk_worse', background = styleColorBar(c(0,1), 'orange'), backgroundSize = '98% 88%', 
+              backgroundRepeat = 'no-repeat', backgroundPosition = 'center') %>%
+        formatStyle('Transitioning', 'rBrk_trans', background = styleColorBar(c(0,1), 'red'), backgroundSize = '98% 88%', 
+              backgroundRepeat = 'no-repeat', backgroundPosition = 'center')
+  }
+}
+```
+
+
+```{r item breakout comparison - full sample for pd, results = 'asis'}
+
+myBrkSub_pd <- 
+  myBrkSub %>%
+  filter(sample == "all", cohortYr == "all") %>%
+  mutate(assessPd_num =  as.numeric(gsub("[^0-9]", "", assessPd))) %>%
+  arrange(assessPd_num) %>%
+  as.data.frame() 
+
+mySample <- "all"
+
+htmltools::tagList(lapply(split(myBrkSub_pd, myBrkSub_pd[, 22]), plotBrkNeeds))
+
+```
+

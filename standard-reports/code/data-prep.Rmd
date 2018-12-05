@@ -119,7 +119,7 @@ The code below identifies CANS assessment items by domains of interest, and a se
 ### fields don't have a consistent prefix, you can hand enter the names of the
 ### relevant fields on the line that begins "items <- c("item_field_1", "item_field_2", ...)" etc
 cansDomains <- c("BEN", "FUN", "RSK", "YST")
-items <- grepv(paste0("^", paste(cansDomains, collapse = "|")), colnames(dt_raw))
+items <- grepv(paste0("^", paste(cansDomains, collapse = "|")), cn(dt_raw))
 
 ### /!\ Fields with categorical information that indicate levels for reporting
 reportFields <- c("County", "Agency")
@@ -184,7 +184,8 @@ Here, we check on any odd cases that we will need to handle in order for our man
 First, we check how many cases are missing agency start date.
 
 ```{r check on missing start dates}
-summarise(dtSub, sum(Agency_StartDate==""))
+summarise(dtSub, sum_notNA(Agency_StartDate==""))
+summarise(dtSub, sum_notNA(is.na(Agency_StartDate)))
 ```
 
 For now, assessments missing an agency start date are left as is, in effect allowing them to operate as their own episode.
@@ -196,7 +197,7 @@ To set the start date `day0`, from which we will start to count days in care for
 
 ```{r develop key dates and lags}
 # First, outside of the df,  define business days as weekdays, to count business days since referral
-cal <- Calendar(weekdays = c("saturday", "sunday")) # Business days here defined as WEEKDAYS, holidays not taken into account
+cal <- create.calendar("working days", weekdays = c("saturday", "sunday")) # Business days here defined as WEEKDAYS, holidays not taken into account
 
 ### /!\ Make sure to adapt the code below to the proper date format, starting
 ### with the line for `agencyStartDate
@@ -522,6 +523,28 @@ dtItemPairs %>%
   arrange(assessPd)
 ```
 
+## Create flags that signal clinical progress on various CANS items 
+
+```{r item breakout binaries}
+
+dtItemPairs <- 
+  dtItemPairs %>%
+  mutate(brk_init  = 1*(valGe2_Initial == 1),
+         brk_cont  = ifelse(brk_init == 1,    1*(valGe2_Initial == 1 & valGe2 == 1),                NA),
+         brk_prog  = ifelse(brk_init == 1,    1*(valGe2_Initial == 1 & ((val_Initial - val) >= 1)), NA),
+         brk_ident = ifelse(brk_init != 1,    1*(valLt2_Initial == 1 & valGe2 == 1),                NA),
+         brk_worse = ifelse(val_Initial == 2, 1*(valGe3 == 1),                                      NA),
+         brk_trans = ifelse(isDischarge,      1*(valGe2 == 1),                                      NA))
+  
+# The above binaries indicate item breakout information
+  #  1. Initial -- this item has  2 or 3 on this item at Initial
+  #  2. Continuity --  2 or 3 on this item between initial and this reassess
+  #  3. Clinical Progress --  initial 2 or 3 on this item decreased by 1 or more on this reassess
+  #  4. Newly Identified -- initial 0 or 1  increased to 2 or 3 on this item on this reasses
+  #  5. Worsening -- initial 2 on this item  increased to a 3 on this reassess
+  #  6. Transitioning -- on discharge assessment, is this item a 2 or a 3
+```
+
 ## Perform the Calculations
 
 ```{r calculate statistics used in the reports}
@@ -530,7 +553,7 @@ dtItemPairs %>%
 rptList <-
   c("trtNeedsRpt", "usefulStrRpt", "actNeedsRpt",
     "cohortMoRpt", "cohortQtrRpt", "compRpt", "entityNs", "fullTimeRpt",
-    "screenTimeRpt", "continueRpt", "pdsaStrRpt", "dateRangeRpt")
+    "screenTimeRpt", "continueRpt", "pdsaStrRpt", "dateRangeRpt", "itemBreakRpt")
 for (df in rptList){
   assign(df, NULL)
 }
@@ -769,7 +792,49 @@ for (rl in c("Systemwide", reportFields)){
       }
     }
   }
-
+  ### Item Breakout Report ---------------------------------------------------------#
+  
+  # Focus on items in only behavioral, life, or risk domains, assessing
+  #  1. Initial -- pct of clients w/a 2 or 3 on this item at initial
+  #  2. Continuity -- pct of clients who continue to have 2 or 3 on this item between initial and reassess
+  #  3. Clinical Progress -- pct of clients whose 2 or 3 on this item decreased by 1 or more
+  #  4. Newly Identified -- pct of clients who started with 0 or 1 and increased to 2 or 3 on this item
+  #  5. Worsening -- pct of clients who started with a 2 on this item and increased to a 3
+  
+  dfBrk <- 
+    dtItemPairs %>%
+    filter(isFull, domain %in% domain_needs, !is.na(valGe2), !is.na(valLt2_Initial))
+  cohortYrs <- 2015:max_notNA(dfBrk$startYear)
+  
+  for (cohortYr in c("all", cohortYrs)){
+    for (cond in c("all", "dischargeonly", "continueonly")){
+      itemBreak <-
+        dfBrk %>%
+        filter(if (cond == "dischargeonly") isDischarge else TRUE,
+               if (cond == "continueonly")  !isDischarge else TRUE,
+               if (cohortYr == "all") startYear %in% cohortYrs else startYear == cohortYr) %>%
+        group_by(rptLvl, rptLvlVal, assessPd, domain, item) %>%
+        summarise(nBrk_init   = sum(brk_init,         na.rm = TRUE),
+                  nBrk_cont   = sum(brk_cont,         na.rm = TRUE),
+                  nBrk_prog   = sum(brk_prog,         na.rm = TRUE),
+                  nBrk_ident  = sum(brk_ident,        na.rm = TRUE),
+                  nBrk_worse  = sum(brk_worse,        na.rm = TRUE),
+                  nBrk_trans  = sum(brk_trans,        na.rm = TRUE),
+                  rBrk_init   = nBrk_init  /sum(!is.na(brk_init)),
+                  rBrk_cont   = nBrk_cont  /sum(!is.na(brk_cont)),
+                  rBrk_prog   = nBrk_prog  /sum(!is.na(brk_prog)),
+                  rBrk_ident  = nBrk_ident /sum(!is.na(brk_ident)),
+                  rBrk_worse  = nBrk_worse /sum(!is.na(brk_worse)),
+                  rBrk_trans  = nBrk_trans /sum(!is.na(brk_trans)),
+                  n = sum(!is.na(val)))
+      if (nrow(comp) != 0){
+        itemBreak$sample <- cond
+        itemBreak$cohortYr <- cohortYr
+        itemBreakRpt <- rbind(itemBreakRpt, itemBreak)
+      }
+    } # End of loop across all vs discharge-only vs reassess-only samples
+  } # End of loop across cohort years
+  
   ### Timeliness calculations -----------------------------------------------------#
 
   screenTimeRpt_rptLvlQtrYr <-
@@ -810,12 +875,8 @@ for (rl in c("Systemwide", reportFields)){
   dateRangeRpt <- rbind(dateRangeRpt, dateRangeRpt_rptLvl)
 }
 
-save(trtNeedsRpt, usefulStrRpt, actNeedsRpt, cohortMoRpt, cohortQtrRpt, compRpt, entityNs, fullTimeRpt, screenTimeRpt, pdsaStrRpt, dateRangeRpt, reportFields,
+save(trtNeedsRpt, usefulStrRpt, actNeedsRpt, cohortMoRpt, cohortQtrRpt, compRpt, entityNs, fullTimeRpt, screenTimeRpt, pdsaStrRpt, dateRangeRpt, reportFields, itemBreakRpt,
      file = "../data/System Report Calc Values.Rda")
 ```
 
-``` {r save research and reference data}
-save(dtItems, dtLong, dtItemPairs,
-     file = "../data/CANS_Items.Rda")
-```
 
