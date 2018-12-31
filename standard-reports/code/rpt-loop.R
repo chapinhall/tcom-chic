@@ -9,6 +9,7 @@
 ### Set up workspace and load data----------------------------------------------
 #------------------------------------------------------------------------------#
 
+# //!\\ Change the working directory to match the place where you have saved your GitHub repository //!\\
 try(setwd("G:/GitHub/tcom-chic/standard-reports"))
 rm(list = ls())
 
